@@ -6,7 +6,6 @@ from itertools import combinations
 import warnings
 from itertools import izip
 import copy
-
 import numpy as np
 from matplotlib import pyplot as plt
 from chiffatools import hmm
@@ -14,42 +13,14 @@ from chiffatools. Linalg_routines import rm_nans
 from scipy.stats import ttest_ind
 import scipy.cluster.hierarchy as sch
 from scipy.ndimage.filters import gaussian_filter1d as smooth_signal
-
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
     center_and_rebalance_tags, recompute_level
 
-
-pth = 'U:\\ank\\2014\\BRU_GBO\\4th_gen'
-fle = 'mmc2-karyotypes.csv'
-
-#####################################################
-# Reads the source file for the amplification markers
-#####################################################
-with open(path.join(pth, fle)) as src:
-    rdr = reader(src)
-    header = rdr.next()
-    selector = [1] + range(4, len(header))
-    header = np.array(header)[selector]
-    locuses = []
-    for row in rdr:
-        row = [ 'nan' if elt == 'NA' else elt for elt in row]
-        locuses.append(np.genfromtxt(np.array(row))[selector].astype(np.float64))
-
-################################
-# Recovers the chromosome limits
-################################
-locuses = np.array(locuses)
-chr_arr = locuses[:, 0]
-chr_brps = pull_breakpoints(chr_arr)
-#############################################################################################
-# TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
-broken_table = []
-chroms = range(int(np.min(chr_arr)), int(np.max(chr_arr))+1)
-for i in chroms:
-    broken_table.append(chr_arr == i)
-broken_table = np.array(broken_table)
-#############################################################################################
-chromosome_tag = np.repeat(locuses[:, 0].reshape((1, locuses.shape[0])), 200, axis=0)
+#################################################################################
+# supresses the noise from Numpy about future suppression of the boolean mask use
+#################################################################################
+warnings.catch_warnings()
+warnings.simplefilter("ignore")
 
 #########################
 # Defines the parsing HMM
@@ -61,12 +32,60 @@ emission_probs  = np.ones((3, 3)) * 0.1
 np.fill_diagonal(emission_probs, 0.8)
 parsing_hmm = hmm.HMM(transition_probs, emission_probs)
 
-warnings.catch_warnings()
-warnings.simplefilter("ignore")
+
+class Environement(object):
+    """
+    Just a payload object to carry around environment variables that are specific to the implementation
+    """
+
+    def __init__(self, _path, _file):
+        paramdict = self.wrap_import(_path, _file)
+        for name, value in paramdict.iteritems():
+            setattr(self, name, value)
+
+    def wrap_import(self, _path, _file):
+        glob_names = ['header', 'chr_brps', 'broken_table', 'chromosome_tag', 'chr_arr', 'chroms', 'locuses']
+
+        #####################################################
+        # Reads the source file for the amplification markers
+        #####################################################
+        with open(path.join(_path, _file)) as src:
+            rdr = reader(src)
+            header = rdr.next()
+            selector = [1] + range(4, len(header))
+            header = np.array(header)[selector]
+            locuses = []
+            for row in rdr:
+                row = ['nan' if elt == 'NA' else elt for elt in row]
+                locuses.append(np.genfromtxt(np.array(row))[selector].astype(np.float64))
+
+        ################################
+        # Recovers the chromosome limits
+        ################################
+        locuses = np.array(locuses)
+        chr_arr = locuses[:, 0]
+        chr_brps = pull_breakpoints(chr_arr)
+        #############################################################################################
+        # TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
+        broken_table = []
+        chroms = range(int(np.min(chr_arr)), int(np.max(chr_arr))+1)
+        for i in chroms:
+            broken_table.append(chr_arr == i)
+        broken_table = np.array(broken_table)
+        #############################################################################################
+        chromosome_tag = np.repeat(locuses[:, 0].reshape((1, locuses.shape[0])), 200, axis=0)
+
+        ldict = locals()
+        print ldict
+        retdict = {}
+        for name, value in ldict.iteritems():
+            if name in glob_names:
+                retdict[name] = value
+        return retdict
 
 
 def simple_t_test_matrix(current_lane):
-    dst = broken_table.shape[0]
+    dst = broken_table.shape[0]  # TODO: switch to the chr_brps
     p_vals = np.empty((dst, dst))
     p_vals.fill(np.NaN)
     for i, j in combinations(range(0, dst), 2):
@@ -95,7 +114,7 @@ def t_statistic_sorter(current_lane, breakpoints=None):
     averages = []
     if breakpoints is None:
         for i in range(0, 24):
-            averages.append(np.median(rm_nans(current_lane[broken_table[i]])))
+            averages.append(np.median(rm_nans(current_lane[broken_table[i]])))  # TODO: switch to the chr_brps
     else:
         subsets = np.split(current_lane, breakpoints[:-1])
         for subset in subsets:
@@ -235,8 +254,8 @@ def compute_karyotype(current_lane, plotting=False):
 
     collector = []
     for i in chroms:
-        lw = np.percentile(parsed[broken_table[i-1, :]]-1, 25)
-        hr = np.percentile(parsed[broken_table[i-1, :]]-1, 75)
+        lw = np.percentile(parsed[broken_table[i-1, :]]-1, 25)  # TODO: switch to the chr_brps
+        hr = np.percentile(parsed[broken_table[i-1, :]]-1, 75)  # TODO: switch to the chr_brps
         collector.append(support_function(lw, hr))
 
     if plotting:
@@ -387,8 +406,8 @@ def compute_recursive_karyotype(lane, plotting=False, debug_plotting=False):
     parsed = background[0, :]
     collector = []
     for i in chroms:
-        lw = np.percentile(parsed[broken_table[i-1, :]], 25)
-        hr = np.percentile(parsed[broken_table[i-1, :]], 75)
+        lw = np.percentile(parsed[broken_table[i-1, :]], 25)  # TODO: switch to the chr_brps
+        hr = np.percentile(parsed[broken_table[i-1, :]], 75)  # TODO: switch to the chr_brps
         collector.append(support_function(lw, hr))
 
     if plotting:
@@ -430,7 +449,7 @@ def compute_all_karyotypes():
         plt.show()
 
     chromlist = []
-    for i in range(1, locuses.shape[1]):
+    for i in range(1, environement.locuses.shape[1]):
         chromlist.append(compute_recursive_karyotype(i, plotting=False))
     chromlist = np.array(chromlist).astype(np.float64)
     plot()
@@ -438,5 +457,8 @@ def compute_all_karyotypes():
 
 
 if __name__ == "__main__":
+    pth = 'U:\\ank\\2014\\BRU_GBO\\4th_gen'
+    fle = 'mmc2-karyotypes.csv'
+    environement = Environement(pth, fle) #TODO: problem; this needs to survive a a call from an outer scope.
     # compute_karyotype(6, True, 0.35)
     print compute_all_karyotypes()
