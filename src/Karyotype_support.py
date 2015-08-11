@@ -3,25 +3,39 @@ __author__ = 'ank'
 import numpy as np
 from matplotlib import pyplot as plt
 from itertools import combinations
-from chiffatools. Linalg_routines import rm_nans
+from chiffatools.Linalg_routines import rm_nans
 from scipy.stats import ttest_ind
 
 
 def t_test_matrix(current_lane, breakpoints):
-    dst = len(breakpoints)
-    p_vals = np.empty((dst, dst))
-    p_vals.fill(np.NaN)
+    """
+    Performs series of t_tests between the segments of current lane divided by breakpoints
+
+    :param current_lane: fused list of chromosomes
+    :param breakpoints: list of positions where HMM detected significant differences between elements
+    :return: matrix of P values student's t_test of difference between average ploidy segments
+    """
+    segment_number = len(breakpoints)
+    p_vals_matrix = np.empty((segment_number, segment_number))
+    p_vals_matrix.fill(np.NaN)
     subsets = np.split(current_lane, breakpoints[:-1])
-    for i, j in combinations(range(0, dst), 2):
+    for i, j in combinations(range(0, segment_number), 2):
         _, p_val = ttest_ind(rm_nans(subsets[i]), rm_nans(subsets[j]), False)
-        p_vals[i, j] = p_val
-    return p_vals
+        p_vals_matrix[i, j] = p_val
+    return p_vals_matrix
 
 
-def rolling_window(a, window):
-    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
-    strides = a.strides + (a.strides[-1],)
-    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+def rolling_window(base_array, window_size):
+    """
+    Extracts a rolling subarray from the current array of a provided size
+
+    :param base_array: array to which we want to apply the rolling window
+    :param window_size: the size of the rolling window
+    :return:
+    """
+    shape = base_array.shape[:-1] + (base_array.shape[-1] - window_size + 1, window_size)
+    strides = base_array.strides + (base_array.strides[-1],)
+    return np.lib.stride_tricks.as_strided(base_array, shape=shape, strides=strides)
 
 
 def pull_breakpoints(contingency_list):
@@ -34,11 +48,23 @@ def pull_breakpoints(contingency_list):
 
 
 def show_breakpoints(breakpoints):
+    """
+    plots the breakpoints
+
+    :param breakpoints:
+    :return:
+    """
     for point in breakpoints:
-        plt.axvline(x=point, color='b')
+        plt.axvline(x=point, color='k')
 
 
 def generate_breakpoint_mask(breakpoints):
+    """
+    generates mask assigning a different integer to each breakpoint
+
+    :param breakpoints:
+    :return:
+    """
     support = np.zeros((np.max(breakpoints), ))
     pre_brp = 0
     for i, brp in enumerate(breakpoints):
@@ -48,6 +74,15 @@ def generate_breakpoint_mask(breakpoints):
 
 
 def inflate_support(length, breakpoints, values=None):
+    """
+    transforms 1D representation of chromosomes into a 2d array that can be rendered
+
+    :param length:
+    :param breakpoints:
+    :param values:
+    :return:
+    """
+
     if values is None:
         values = np.array(range(0, len(breakpoints)))
     if breakpoints[-1]< length:
@@ -59,6 +94,13 @@ def inflate_support(length, breakpoints, values=None):
 
 
 def inflate_tags(_1D_array, width=100):
+    """
+    reshapes a 1_d array into a 2d array that can be rendered
+
+    :param _1D_array:
+    :param width:
+    :return:
+    """
     nar = _1D_array.reshape((1, _1D_array.shape[0]))
     return np.repeat(nar, width, axis=0)
 
