@@ -47,7 +47,7 @@ def pull_breakpoints(contingency_list):
     return breakpoints
 
 
-def show_breakpoints(breakpoints):
+def show_breakpoints(breakpoints, color = 'k'):
     """
     plots the breakpoints
 
@@ -55,7 +55,7 @@ def show_breakpoints(breakpoints):
     :return:
     """
     for point in breakpoints:
-        plt.axvline(x=point, color='k')
+        plt.axvline(x=point, color=color)
 
 
 def generate_breakpoint_mask(breakpoints):
@@ -145,3 +145,22 @@ def recompute_level(labels, mean_values):
         current_mask = labels == _value
         new_mean_values[current_mask] = np.average(mean_values[current_mask])
     return  new_mean_values
+
+
+def position_centromere_breakpoints(chr2centromere_loc, chr_location_arr, broken_table):
+    """
+    Extracts indexes where the centromeric breakpoints indexes are in the locus array
+
+    :param chr2centromere_loc: dict mapping chrmosome number to cetromere location (in kb)
+    :param chr_location_arr: array containing chromosome number inf 1st column and locus location on that chromosome
+    in the second.
+    :param broken_table: chromosome partition mask collection
+    :return:
+    """
+    numerical_pad = np.arange(chr_location_arr.shape[0])[:, np.newaxis]
+    chr_location_arr = np.hstack((numerical_pad, chr_location_arr))
+    global_indexes = np.zeros((len(chr2centromere_loc.keys()),)).tolist()
+    for chromosome, centromere_location in chr2centromere_loc.iteritems():
+        local_idx = np.argmax(chr_location_arr[broken_table[chromosome-1], 2] > centromere_location)
+        global_indexes[chromosome-1] = chr_location_arr[broken_table[chromosome-1], 0][local_idx]
+    return global_indexes

@@ -14,8 +14,9 @@ from pprint import pprint
 import sys
 from chiffatools import hmm
 from chiffatools.Linalg_routines import rm_nans
+from src.pre_processors import get_centromeres
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
-    center_and_rebalance_tags, recompute_level, show_breakpoints
+    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints
 
 # TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
 
@@ -47,9 +48,12 @@ class Environement(object):
         self.chr_brps = None
         self.broken_table = None
         self.chromosome_tag = None
+        self.centromere_brps = None
+        self.locus_locations = None
         self.chr_arr = None
         self.chroms = None
         self.locuses = None
+        self.segments = None
 
         if _file is not None:
             paramdict = self.wrap_import(_path, _file)
@@ -69,14 +73,21 @@ class Environement(object):
             rdr = reader(src)
             header = rdr.next()
             selector = [1] + range(4, len(header))
+            # I need lanes 1+2 to build mappings of the locations and centromeres
+            selector2 = [1, 2]
             header = np.array(header)[selector]
             locuses = []
+            locus_locations = []
             for row in rdr:
                 row = ['nan' if elt == 'NA' else elt for elt in row]
                 locuses.append(np.genfromtxt(np.array(row))[selector].astype(np.float64))
+                locus_locations.append(np.genfromtxt(np.array(row)[selector2]).astype(np.int32))
+
 
         # Recovers the chromosome limits
         locuses = np.array(locuses)
+        locus_locations = np.array(locus_locations)
+
         chr_arr = locuses[:, 0]
         chr_brps = pull_breakpoints(chr_arr)
         broken_table = []  # broken tables has "true" set onto the array to the span of tag indexes indicating
@@ -87,14 +98,26 @@ class Environement(object):
         broken_table = np.array(broken_table)
         chromosome_tag = np.repeat(locuses[:, 0].reshape((1, locuses.shape[0])), 200, axis=0)
 
+        centromere_brps = position_centromere_breakpoints(get_centromeres(), locus_locations, broken_table)
+
+        # segmentation code
+        segments = np.concatenate((chr_brps, centromere_brps))
+        segments = np.sort(segments).tolist()
+        segments.insert(0, 0)
+        segments.append(len(locuses)) # -1 ?
+        segments = np.array([segments[:-1], segments[1:]]).T
+
         retdict = {
                 'header': header,
                 'chr_brps': chr_brps,
                 'broken_table': broken_table,                   # TODO: switch to the chr_brps => Convert to bi-edges
                 'chromosome_tag': chromosome_tag,
+                'centromere_brps': centromere_brps,
                 'chr_arr': chr_arr,
                 'chroms': chroms,
-                'locuses': locuses
+                'locuses': locuses,
+                'locus_locations': locus_locations,
+                'segments': segments,
                     }
         return retdict
 
@@ -290,6 +313,7 @@ class Environement(object):
             pre_brp = brp
 
         collector = []
+
         for i in self.chroms:
             lw = np.percentile(parsed[self.broken_table[i-1, :]]-1, 25)  # TODO: switch to the chr_brps
             hr = np.percentile(parsed[self.broken_table[i-1, :]]-1, 75)  # TODO: switch to the chr_brps
@@ -319,7 +343,7 @@ class Environement(object):
             # repeated code. TODO: in the future, factor it out
             prv_brp = 0
             for breakpoint in breakpoints:
-                breakpoint_accumulator.append(breakpoint-prv_brp)
+                breakpoint_accumulator.append(breakpoint - prv_brp)
                 prv_brp = breakpoint
             breakpoint_accumulator = np.array(breakpoint_accumulator)
             ############################################################
@@ -452,6 +476,15 @@ class Environement(object):
             hr = np.percentile(parsed[self.broken_table[i-1, :]], 75)  # TODO: switch to the chr_brps
             collector.append(support_function(lw, hr))
 
+        collector2 = []
+        for segment in self.segments:
+            if segment[1]-segment[0] > 0:
+                lw = np.percentile(parsed[segment[0]:segment[1]], 25)
+                hr = np.percentile(parsed[segment[0]:segment[1]], 75)
+                collector2.append(support_function(lw, hr))
+            else:
+                collector2.append(np.nan)
+
         if plotting:
             ax1 = plt.subplot(511)
             plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
@@ -477,43 +510,56 @@ class Environement(object):
             plt.setp(ax5.get_xticklabels(), visible=False)
             # ax6 = plt.subplot(616, sharex=ax1)
             plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-            plt.imshow(inflate_support(self.chromosome_tag.shape[1], self.chr_brps, np.array(collector)), interpolation='nearest', cmap='coolwarm', vmin=-1., vmax=1 )
+            plt.imshow(inflate_support(self.chromosome_tag.shape[1], self.chr_brps, np.array(collector)),
+                       interpolation='nearest', cmap='coolwarm', vmin=-1., vmax=1 )
             # plt.setp(ax6.get_xticklabels(), visible=False)
             plt.show()
 
-        return collector, background
+        return collector, background, collector2
 
 
     def compute_all_karyotypes(self):
 
         def plot():
-            plt.imshow(chromlist, interpolation='nearest', cmap='coolwarm')
+            plt.imshow(chromosome_list, interpolation='nearest', cmap='coolwarm')
             plt.show()
 
         def plot2():
             plt.imshow(background_list, interpolation='nearest', cmap='coolwarm')
-            show_breakpoints(self.chr_brps)
+            show_breakpoints(self.chr_brps, 'k')
+            show_breakpoints(list(set(self.centromere_brps) - set(self.chr_brps)), 'g')
             plt.show()
 
-        chromlist = []
+        def plot3():
+            plt.imshow(arms_list, interpolation='nearest', cmap='coolwarm')
+            plt.show()
+
+        chromosome_list = []
         background_list = []
+        arms_list = []
         for i in range(1, environement.locuses.shape[1]):
-            print i
-            col, bckg = self.compute_recursive_karyotype(i, plotting=False)
-            chromlist.append(col)
+            print 'analyzing sample #', i
+            col, bckg, col2 = self.compute_recursive_karyotype(i, plotting=False)
+            chromosome_list.append(col)
             background_list.append(bckg[:25, :])
-        chromlist = np.array(chromlist).astype(np.float64)
+            arms_list.append(col2)
+        chromosome_list = np.array(chromosome_list).astype(np.float64)
         background_list = np.vstack(tuple(background_list)).astype(np.float64)
+        arms_list = np.array(arms_list).astype(np.float64)
         plot()
         plot2()
+        plot3()
 
-        return chromlist, self.header[1:self.locuses.shape[1]]
+        # Use background_list, headers, chr_brps and locus mappings to output segmental amplification
+        # better: use the data container that is used to generate background list to improve on its generation
+
+        return chromosome_list, self.header[1:self.locuses.shape[1]]
 
 
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environement = Environement(pth, fle) #TODO: problem; this needs to survive a a call from an outer scope.
+    environement = Environement(pth, fle)
     print environement
     # print environement.compute_recursive_karyotype(40, True)
     print environement.compute_all_karyotypes()

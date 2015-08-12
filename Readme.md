@@ -1,5 +1,7 @@
-A set of tools and functions to access information about local and chromosome-level copy number gains or losses
+Python implementation of HMM regression of segmental ploidy state for DNA chip
 ===============================================================================================================
+
+This 
 
 This is a small tool based on the HMMs and t_test series to determine the most likely chromosome-level
 karyotype of a sample while keeping the information about local amplifications.
@@ -25,3 +27,6 @@ chiffatools can be downloaded and installed via
 
 Pay attention, you will need to manually select the file you are willing to analyze and type it's name in the
 source code for now.
+
+**Future developments:**
+ - Made the HMM aware of distances between locuses measured on affymetrix plateform and transition between the chromosomes
