@@ -9,12 +9,16 @@ def get_centromeres():
 
     :return: dict {chr#: centromere location (kb)}
     """
+    transdict = {'X':23, 'Y':24}
     collector_list = []
     with open('static_data/cytoBand.txt') as fle:
         current_reader = rdr(fle, delimiter='\t')
         for line in current_reader:
-            if line[-1] == 'acen' and 'p' in line[-2] and line[0][3:].isdigit():
-                collector_list.append((int(line[0][3:]), int(line[2])/(10**3)))
+            if line[-1] == 'acen' and 'p' in line[-2]:
+                if line[0][3:].isdigit():
+                    collector_list.append((int(line[0][3:]), int(line[2])/(10**3)))
+                else:
+                    collector_list.append((transdict[line[0][3:]], int(line[2])/(10**3)))
 
     return dict(collector_list)
 

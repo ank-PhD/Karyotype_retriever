@@ -39,6 +39,12 @@ def rolling_window(base_array, window_size):
 
 
 def pull_breakpoints(contingency_list):
+    """
+    A method to extract breakpoints separating np.array regions with the same value.
+
+    :param contingency_list: np.array containing regions of identical values
+    :return: list of breakpoint indexes
+    """
     no_nans_parsed = rm_nans(contingency_list)
     contingency = np.lib.pad(no_nans_parsed[:-1] == no_nans_parsed[1:], (1, 0), 'constant', constant_values=(True, True))
     nans_contingency = np.zeros(contingency_list.shape).astype(np.bool)

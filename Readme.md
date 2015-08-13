@@ -28,5 +28,31 @@ chiffatools can be downloaded and installed via
 Pay attention, you will need to manually select the file you are willing to analyze and type it's name in the
 source code for now.
 
+In order to execute the pipeline, setup the environement with a
+```
+    > import Karyotype_rertiever as KR
+    > env = KR.Environement(path_to_your_file, file_name)
+    > result = env.compute_all_karyotypes()
+```
+
+In order, you will be shown gain/losses on the chromosome level, label level and chromosome level.
+
+The result is a 3-level dict:
+```
+    { <Strain Name>:
+        {<chromosome#>-p/q:
+            {'arm_level': arm-level aneuploidy,
+             'segmental_aneuploidy': [[positions of arm start and segmental aneuploidy breakpoints (kb)],
+                                      [ploidy level after the breakpoint above]]
+             }
+        ...},
+    ....}
+```
+
+**Static data files:**
+ - CytoBands.txt courtesy of http://hgdownload.cse.ucsc.edu/goldenPath/hg18/database/cytoBand.txt.gz
+
 **Future developments:**
- - Made the HMM aware of distances between locuses measured on affymetrix plateform and transition between the chromosomes
+ - Made the HMM aware of distances between locuses measured on affymetrix chip (1) and recombination hotspots (2)
+ - Collapse HMM predictions onto a chromosome limits or centromere limits if the transition boundaries are close (critcial)
+ - Reformulate as Bayesian choice: state of markers =  evidence; distance = prob. of transition or collapse (?)

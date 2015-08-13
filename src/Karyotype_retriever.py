@@ -16,7 +16,7 @@ from chiffatools import hmm
 from chiffatools.Linalg_routines import rm_nans
 from src.pre_processors import get_centromeres
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
-    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints
+    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags
 
 # TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
 
@@ -189,10 +189,6 @@ class Environement(object):
         splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
                                         accumulator.shape[0], axis = 0)
         splitting_matrix = np.abs(splitting_matrix - splitting_matrix.T)
-        ########################################################################
-        # plt.imshow(splitting_matrix, interpolation='nearest', cmap='coolwarm')
-        # plt.show()
-        ########################################################################
 
         Y_2 = sch.linkage(splitting_matrix, method='centroid')
 
@@ -220,23 +216,10 @@ class Environement(object):
         re_classification_tag = np.zeros(re_chromosome_pad.shape)
 
         for i in range(0, len(clust_alloc)):
-            # re_classification_tag[re_chromosome_pad == i+1] = averages[i]
-            # re_classification_tag[re_chromosome_pad == i+1] = accumulator[ clust_alloc[i]-1]
             re_classification_tag[re_chromosome_pad == i+1] = sorter[clust_alloc_2[clust_alloc[i]-1]-1]
 
         if breakpoints:
             re_classification_tag = center_and_rebalance_tags(re_classification_tag)
-
-        #################################################################################
-        # ax1 = plt.subplot(211)
-        # plt.imshow(chromosome_tag, interpolation='nearest', cmap='spectral')
-        # plt.imshow(re_classification_tag, interpolation='nearest', cmap='coolwarm')
-        # plt.setp(ax1.get_xticklabels(), fontsize=6)
-        # ax2 = plt.subplot(212, sharex=ax1)
-        # plt.plot(current_lane-np.average(rm_nans(current_lane)), 'k.')
-        # plt.setp(ax2.get_xticklabels(), visible=False)
-        # plt.show()
-        ################################################################################
 
         return re_classification_tag
 
@@ -256,10 +239,12 @@ class Environement(object):
         def plot_classification():
 
             classification_tag = np.repeat(parsed.reshape((1, parsed.shape[0])), 100, axis=0)
+
             ax1 = plt.subplot(311)
             plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
             plt.imshow(classification_tag, interpolation='nearest', cmap='coolwarm', vmin=0, vmax=2)
             plt.setp(ax1.get_xticklabels(), fontsize=6)
+
             ax2 = plt.subplot(312, sharex=ax1)
             plt.plot(current_lane, 'k.')
             plt.plot(gauss_convolve, 'r', lw=2)
@@ -268,15 +253,11 @@ class Environement(object):
             plt.plot(segment_averages, 'b', lw=2)
             plt.axhline(y=threshold, color='c')
             plt.axhline(y=-threshold, color='c')
-            # for point in breakpoints:
-            #     plt.axvline(x=point, color='b')
             plt.setp(ax2.get_xticklabels(), visible=False)
+
             ax3 = plt.subplot(313, sharex=ax1)
             plt.plot(current_lane-segment_averages, 'k.')
-            # # plt.plot(total_corr, 'k.')
-            # # plt.plot(gauss_convolve, 'k.')
-            # # plt.plot(rolling_std, 'g')
-            # plt.setp(ax3.get_xticklabels(), visible=False)
+
             plt.show()
 
         current_lane = current_lane - np.mean(rm_nans(current_lane))
@@ -368,35 +349,26 @@ class Environement(object):
             filled_in = re_class_tag.copy().astype(np.float)
             levels = amplicons.copy()
             prv_brp = 0
-            processing_trace = []
             non_short_selector = np.logical_not(shortness[0, :].astype(np.bool))
             for _i, breakpoint in enumerate(shortness_breakpoints):
-                processing_trace.append(1)
                 if all(shortness[0, :][prv_brp:breakpoint]):
-                    processing_trace = processing_trace[:-1]
                     current_fltr = shortness_ladder == _i
                     diff_min_max = np.max(parsed[current_fltr]) - np.min(parsed[current_fltr])
                     if diff_min_max == 0 and prv_brp - 1 > 0 and breakpoint + 1 < shortness_breakpoints[-1]:
-                        processing_trace.append(0)
-                        # print parsed[prv_brp-1] == parsed[breakpoint+1], breakpoint in chr_brps, prv_brp in chr_brps,
                         non_modified = True
                         if parsed[prv_brp-1] == parsed[breakpoint+1]:
-                            processing_trace[-1] -= 0.1
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
                             levels[current_fltr] = amplicons[prv_brp - 1]
                             non_modified = False
                         if prv_brp in self.chr_brps and breakpoint not in self.chr_brps:
-                            processing_trace[-1] -= 0.2
                             filled_in[:, current_fltr] = parsed[breakpoint + 1]
                             levels[current_fltr] = amplicons[breakpoint + 1]
                             non_modified = False
                         if breakpoint in self.chr_brps and prv_brp not in self.chr_brps:
-                            processing_trace[-1] -= 0.3
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
                             levels[current_fltr] = amplicons[prv_brp - 1]
                             non_modified = False
                         if non_modified:
-                            processing_trace[-1] -= 0.4
                             cur_chr = self.chr_arr[breakpoint]
                             chr_median = np.median(amplicons[np.logical_and(cur_chr, non_short_selector)])
                             lar = np.array([prv_brp-1, breakpoint+1])
@@ -405,7 +377,6 @@ class Environement(object):
                             filled_in[:, current_fltr] = parsed[lar[vl]]
                             levels[current_fltr] = amplicons[lar[vl]]
                     else :
-                        processing_trace.append(2)
                         average = np.average(amplicons[current_fltr])
                         closest_index = np.argmin(np.abs(amplicons[non_short_selector] - average))
                         closest_index = np.array(range(0, shortness_breakpoints[-1]))[non_short_selector][closest_index]
@@ -416,29 +387,6 @@ class Environement(object):
 
             filled_in = center_and_rebalance_tags(filled_in)
             levels = recompute_level(filled_in[0, :], levels)
-            # print 'execution trace:', processing_trace
-
-            #######################################################################################
-            # ax1 = plt.subplot(411)
-            # plt.imshow(chromosome_tag, interpolation='nearest', cmap='spectral')
-            # plt.imshow(re_class_tag, interpolation='nearest', cmap='coolwarm')
-            # plt.setp(ax1.get_xticklabels(), fontsize=6)
-            # ax2 = plt.subplot(412, sharex=ax1)
-            # plt.plot(locuses[:, lane] - np.average(rm_nans(locuses[:, lane])), 'k.')
-            # show_breakpoints(shortness_breakpoints)
-            # plt.plot(amplicons, 'r', lw=2)
-            # plt.plot(levels, 'g', lw=2)
-            # plt.setp(ax2.get_xticklabels(), visible=False)
-            # ax3 = plt.subplot(413, sharex=ax1)
-            # plt.imshow(chromosome_tag, interpolation='nearest', cmap='spectral')
-            # plt.imshow(inflate_tags(shortness_ladder), interpolation='nearest', cmap='coolwarm')
-            # plt.setp(ax3.get_xticklabels(), visible=False)
-            # ax4 = plt.subplot(414, sharex=ax1)
-            # plt.imshow(chromosome_tag, interpolation='nearest', cmap='spectral')
-            # plt.imshow(inflate_support(current_lane.shape[0], shortness_breakpoints, np.array(processing_trace)), interpolation='nearest', cmap='coolwarm')
-            # plt.setp(ax4.get_xticklabels(), visible=False)
-            # plt.show()
-            #######################################################################################
 
             return  shortness, filled_in, levels
 
@@ -458,7 +406,7 @@ class Environement(object):
                 ampli_levels += re_retlist[2] - 1
 
         breakpoints = pull_breakpoints(ampli_levels)
-        # the next couple of lines stabilizes the nan-level removal thanks to the
+        # the next couple of lines stabilizes the nan-level removal
         brp_def_segs = np.split(np.array(current_lane), np.array(breakpoints))
         selection_mask = np.logical_not(np.array([np.isnan(np.nanmean(arr)) for arr in brp_def_segs]))
         breakpoints = np.array(breakpoints)[selection_mask[:-1]].tolist()
@@ -489,30 +437,27 @@ class Environement(object):
             ax1 = plt.subplot(511)
             plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
             plt.imshow(background, interpolation='nearest', cmap='coolwarm')
-            # plt.imshow(re_class_tag, interpolation='nearest', cmap='coolwarm')
             plt.setp(ax1.get_xticklabels(), fontsize=6)
+
             ax2 = plt.subplot(512, sharex=ax1)
             plt.plot(self.locuses[:, lane]-np.average(rm_nans(self.locuses[:, lane])), 'k.')
             plt.plot(amplicons, 'r', lw=2)
             plt.setp(ax2.get_xticklabels(), visible=False)
+
             ax3 = plt.subplot(513, sharex=ax1, sharey=ax2)
-            # plt.plot(locuses[:, lane]-np.average(rm_nans(locuses[:, lane])), 'k.')
             plt.plot(corrected_levels, 'r', lw=2)
             plt.setp(ax3.get_xticklabels(), visible=False)
+
             ax4 = plt.subplot(514, sharex=ax1, sharey=ax2)
-            # plt.plot(locuses[:, lane]-np.average(rm_nans(locuses[:, lane])), 'k.')
             plt.plot(amplicons-corrected_levels, 'g', lw=2)
             plt.setp(ax4.get_xticklabels(), visible=False)
+
             ax5 = plt.subplot(515, sharex=ax1)
-            # plt.plot(locuses[:, lane]-np.average(rm_nans(locuses[:, lane])), 'k.')
-            # plt.plot(corrected_levels, 'r', lw=2)
-            # plt.plot(amplicons-corrected_levels, 'g', lw=2)
             plt.setp(ax5.get_xticklabels(), visible=False)
-            # ax6 = plt.subplot(616, sharex=ax1)
             plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
             plt.imshow(inflate_support(self.chromosome_tag.shape[1], self.chr_brps, np.array(collector)),
                        interpolation='nearest', cmap='coolwarm', vmin=-1., vmax=1 )
-            # plt.setp(ax6.get_xticklabels(), visible=False)
+
             plt.show()
 
         return collector, background, collector2
@@ -525,7 +470,8 @@ class Environement(object):
             plt.show()
 
         def plot2():
-            plt.imshow(background_list, interpolation='nearest', cmap='coolwarm')
+            inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(background_list, background_list.shape[0])])
+            plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
             show_breakpoints(self.chr_brps, 'k')
             show_breakpoints(list(set(self.centromere_brps) - set(self.chr_brps)), 'g')
             plt.show()
@@ -537,12 +483,14 @@ class Environement(object):
         chromosome_list = []
         background_list = []
         arms_list = []
-        for i in range(1, environement.locuses.shape[1]):
+        all_breakpoints = []
+        for i in range(1, environment.locuses.shape[1]):
             print 'analyzing sample #', i
             col, bckg, col2 = self.compute_recursive_karyotype(i, plotting=False)
             chromosome_list.append(col)
-            background_list.append(bckg[:25, :])
+            background_list.append(bckg[0, :])
             arms_list.append(col2)
+            all_breakpoints.append(pull_breakpoints(bckg[0, :]))
         chromosome_list = np.array(chromosome_list).astype(np.float64)
         background_list = np.vstack(tuple(background_list)).astype(np.float64)
         arms_list = np.array(arms_list).astype(np.float64)
@@ -550,16 +498,53 @@ class Environement(object):
         plot2()
         plot3()
 
-        # Use background_list, headers, chr_brps and locus mappings to output segmental amplification
+        cell_line_dict = {}
+        for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(), arms_list.tolist(),
+                                                                 all_breakpoints, self.header):
+            # print cell_line_name
+            cell_line_dict[cell_line_name] = {}
+            breakpoints = np.array(breakpoints)
+            background = np.array(background)
+            for chromosome in range(0, self.broken_table.shape[0]):
+                # print chromosome+1
+                # print arms[chromosome*2], arms[chromosome*2+1]
+                chr_p_dict = {} # amplification state, segments_array
+                chr_q_dict = {}
+                p_arm = self.segments[chromosome*2].tolist()
+                q_arm = self.segments[chromosome*2 + 1].tolist()
+                p_brps = breakpoints[np.logical_and(breakpoints > p_arm[0], breakpoints < p_arm[1])]
+                q_brps = breakpoints[np.logical_and(breakpoints > q_arm[0], breakpoints < q_arm[1])]
+                # print p_arm, q_arm
+                chr_p_dict['arm_level'] = arms[chromosome*2]
+                chr_q_dict['arm_level'] = arms[chromosome*2 + 1]
+                # print p_brps, q_brps
+                if p_arm[1] - p_arm[0] > 0 and p_brps.size:
+                    p_characteristics = [[0] + self.locus_locations[p_brps].T[1].tolist(),
+                    [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
+                else:
+                    p_characteristics = [[], []]
+                if q_arm[1] - q_arm[0] > 0 and q_brps.size:
+                    q_characteristics = [[self.locus_locations[q_arm[0]][1]] + self.locus_locations[q_brps].T[1].tolist(),
+                    [background[q_arm[0] + 1].tolist()] + background[q_brps + 1].tolist()]
+                else:
+                    q_characteristics = [[], []]
+                chr_p_dict['segmental_aneuploidy'] = p_characteristics
+                chr_q_dict['segmental_aneyploidy'] = q_characteristics
+                cell_line_dict[cell_line_name][str(chromosome+1)+'-p'] = chr_p_dict
+                cell_line_dict[cell_line_name][str(chromosome+1)+'-q'] = chr_q_dict
+
+            # print breakpoints
+
+        # TODO: Use all_breakpoints, headers, chr_brps and locus mappings to output segmental amplification
         # better: use the data container that is used to generate background list to improve on its generation
 
-        return chromosome_list, self.header[1:self.locuses.shape[1]]
+        return cell_line_dict
 
 
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environement = Environement(pth, fle)
-    print environement
-    # print environement.compute_recursive_karyotype(40, True)
-    print environement.compute_all_karyotypes()
+    environment = Environement(pth, fle)
+    # print environment
+    # print environment.compute_recursive_karyotype(40, True)
+    pprint(environment.compute_all_karyotypes())
