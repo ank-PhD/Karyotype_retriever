@@ -494,6 +494,7 @@ class Environement(object):
         chromosome_list = np.array(chromosome_list).astype(np.float64)
         background_list = np.vstack(tuple(background_list)).astype(np.float64)
         arms_list = np.array(arms_list).astype(np.float64)
+
         plot()
         plot2()
         plot3()
@@ -501,23 +502,18 @@ class Environement(object):
         cell_line_dict = {}
         for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(), arms_list.tolist(),
                                                                  all_breakpoints, self.header):
-            # print cell_line_name
             cell_line_dict[cell_line_name] = {}
             breakpoints = np.array(breakpoints)
             background = np.array(background)
             for chromosome in range(0, self.broken_table.shape[0]):
-                # print chromosome+1
-                # print arms[chromosome*2], arms[chromosome*2+1]
-                chr_p_dict = {} # amplification state, segments_array
+                chr_p_dict = {}
                 chr_q_dict = {}
                 p_arm = self.segments[chromosome*2].tolist()
                 q_arm = self.segments[chromosome*2 + 1].tolist()
                 p_brps = breakpoints[np.logical_and(breakpoints > p_arm[0], breakpoints < p_arm[1])]
                 q_brps = breakpoints[np.logical_and(breakpoints > q_arm[0], breakpoints < q_arm[1])]
-                # print p_arm, q_arm
                 chr_p_dict['arm_level'] = arms[chromosome*2]
                 chr_q_dict['arm_level'] = arms[chromosome*2 + 1]
-                # print p_brps, q_brps
                 if p_arm[1] - p_arm[0] > 0 and p_brps.size:
                     p_characteristics = [[0] + self.locus_locations[p_brps].T[1].tolist(),
                     [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
@@ -532,11 +528,6 @@ class Environement(object):
                 chr_q_dict['segmental_aneyploidy'] = q_characteristics
                 cell_line_dict[cell_line_name][str(chromosome+1)+'-p'] = chr_p_dict
                 cell_line_dict[cell_line_name][str(chromosome+1)+'-q'] = chr_q_dict
-
-            # print breakpoints
-
-        # TODO: Use all_breakpoints, headers, chr_brps and locus mappings to output segmental amplification
-        # better: use the data container that is used to generate background list to improve on its generation
 
         return cell_line_dict
 

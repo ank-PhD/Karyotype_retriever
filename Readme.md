@@ -49,10 +49,15 @@ The result is a 3-level dict:
     ....}
 ```
 
+The time of execution on a modern workstation, for a single sample of ~3000 genomic locations is less than a second
+
+Chromosomes X and Y were re-named to 23 and 24 respectively.
+
 **Static data files:**
  - CytoBands.txt courtesy of http://hgdownload.cse.ucsc.edu/goldenPath/hg18/database/cytoBand.txt.gz
 
 **Future developments:**
  - Made the HMM aware of distances between locuses measured on affymetrix chip (1) and recombination hotspots (2)
  - Collapse HMM predictions onto a chromosome limits or centromere limits if the transition boundaries are close (critcial)
+ - Create a command line user interface (critical)
  - Reformulate as Bayesian choice: state of markers =  evidence; distance = prob. of transition or collapse (?)
