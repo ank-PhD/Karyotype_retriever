@@ -19,6 +19,7 @@ Required packages:
  * numpy
  * scipy
  * matplotlib
+ * click
  * chiffatools
 
 
@@ -36,6 +37,11 @@ In order to execute the pipeline, setup the environement with a
 ```
 
 In order, you will be shown gain/losses on the chromosome level, label level and chromosome level.
+
+Alternatively, if the script was installed with pip:
+```
+    > Karyotype_retriever run_pipeline path_to_your_file file_name
+```
 
 The result is a 3-level dict:
 ```
@@ -57,7 +63,7 @@ Chromosomes X and Y were re-named to 23 and 24 respectively.
  - CytoBands.txt courtesy of http://hgdownload.cse.ucsc.edu/goldenPath/hg18/database/cytoBand.txt.gz
 
 **Future developments:**
- - Made the HMM aware of distances between locuses measured on affymetrix chip (1) and recombination hotspots (2)
  - Collapse HMM predictions onto a chromosome limits or centromere limits if the transition boundaries are close (critcial)
- - Create a command line user interface (critical)
+ - Made the HMM aware of distances between locuses measured on affymetrix chip (1) and recombination hotspots (2)
  - Reformulate as Bayesian choice: state of markers =  evidence; distance = prob. of transition or collapse (?)
+ - Implement clustering of cell lines on the level of chromosome gain/loss similarity (?)
