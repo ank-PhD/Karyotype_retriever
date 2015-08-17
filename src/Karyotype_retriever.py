@@ -20,6 +20,8 @@ from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoint
 
 # TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
 
+# TODO: parametrize the collapsing parameters of the model
+
 ##################################################################################
 # suppresses the noise from Numpy about future suppression of the boolean mask use
 ##################################################################################
@@ -42,7 +44,7 @@ class Environement(object):
     Just a payload object to carry around environment variables that are specific to the implementation
     """
 
-    def __init__(self, _path, _file):
+    def __init__(self, _path, _file, min_seg_support=25, collapse_segs=3):
 
         self.header = None
         self.chr_brps = None
@@ -54,6 +56,8 @@ class Environement(object):
         self.chroms = None
         self.locuses = None
         self.segments = None
+        self.min_seg_support = min_seg_support
+        self.collapse_segs = collapse_segs
 
         if _file is not None:
             paramdict = self.wrap_import(_path, _file)
@@ -328,21 +332,33 @@ class Environement(object):
                 prv_brp = breakpoint
             breakpoint_accumulator = np.array(breakpoint_accumulator)
             ############################################################
-            msk = breakpoint_accumulator < 25
+            msk = breakpoint_accumulator < self.min_seg_support
             shortness = inflate_support(current_lane.shape[0], breakpoints, msk)
 
             shortness_breakpoints = pull_breakpoints(shortness[0, :])
-            shortness_breakpoints.append(shortness.shape[1])
 
-            chr_brp_arr = np.array(self.chr_brps)
+            chr_brp_arr = np.array(sorted(self.chr_brps + self.centromere_brps))
             re_brp = []
+            supression_set = []
             prv_brp = 0
+
+            # adds chromosome end breakpoints into breakpoint list
             for breakpoint in shortness_breakpoints:
                 chr_break_verify = np.logical_and(chr_brp_arr > prv_brp, chr_brp_arr < breakpoint)
                 if any(chr_break_verify) and all(shortness[0, :][prv_brp:breakpoint]):
                     re_brp += chr_brp_arr[chr_break_verify].tolist()
+                    if re_brp[0] - prv_brp < self.collapse_segs:
+                        supression_set.append(prv_brp)
+                    if breakpoint - re_brp[-1] < self.collapse_segs:
+                        supression_set.append(breakpoint)
                 prv_brp = breakpoint
             shortness_breakpoints = sorted(shortness_breakpoints + re_brp)
+            print 'supset', supression_set
+            shortness_breakpoints = sorted(list(set(shortness_breakpoints) - set(supression_set)))
+
+            shortness_breakpoints.append(shortness.shape[1])
+            shortness_breakpoints = sorted(list(set(shortness_breakpoints)))
+            # =>
 
             shortness_ladder = inflate_support(current_lane.shape[0], shortness_breakpoints)[0, :]
 
@@ -350,6 +366,8 @@ class Environement(object):
             levels = amplicons.copy()
             prv_brp = 0
             non_short_selector = np.logical_not(shortness[0, :].astype(np.bool))
+
+            # ????
             for _i, breakpoint in enumerate(shortness_breakpoints):
                 if all(shortness[0, :][prv_brp:breakpoint]):
                     current_fltr = shortness_ladder == _i
@@ -360,11 +378,11 @@ class Environement(object):
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
                             levels[current_fltr] = amplicons[prv_brp - 1]
                             non_modified = False
-                        if prv_brp in self.chr_brps and breakpoint not in self.chr_brps:
+                        if prv_brp in self.chr_brps and breakpoint not in self.chr_brps: #TODO: add range+collapse
                             filled_in[:, current_fltr] = parsed[breakpoint + 1]
                             levels[current_fltr] = amplicons[breakpoint + 1]
                             non_modified = False
-                        if breakpoint in self.chr_brps and prv_brp not in self.chr_brps:
+                        if breakpoint in self.chr_brps and prv_brp not in self.chr_brps: #TODO: add range+collapse
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
                             levels[current_fltr] = amplicons[prv_brp - 1]
                             non_modified = False
@@ -384,6 +402,7 @@ class Environement(object):
                         filled_in[:, current_fltr] = color
                         levels[current_fltr] = amplicons[closest_index]
                 prv_brp = breakpoint
+            # =>
 
             filled_in = center_and_rebalance_tags(filled_in)
             levels = recompute_level(filled_in[0, :], levels)
@@ -460,44 +479,44 @@ class Environement(object):
 
             plt.show()
 
-        return collector, background, collector2
+        return collector, background[0, :], collector2, amplicons-background[0, :]
 
 
     def compute_all_karyotypes(self):
 
-        def plot():
-            plt.imshow(chromosome_list, interpolation='nearest', cmap='coolwarm')
+        def plot(_list):
+            plt.imshow(_list, interpolation='nearest', cmap='coolwarm')
             plt.show()
 
-        def plot2():
-            inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(background_list, background_list.shape[0])])
+        def plot2(_list):
+            inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(_list, _list.shape[0])])
             plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
             show_breakpoints(self.chr_brps, 'k')
             show_breakpoints(list(set(self.centromere_brps) - set(self.chr_brps)), 'g')
-            plt.show()
-
-        def plot3():
-            plt.imshow(arms_list, interpolation='nearest', cmap='coolwarm')
             plt.show()
 
         chromosome_list = []
         background_list = []
         arms_list = []
         all_breakpoints = []
+        remainders_list = []
         for i in range(1, environment.locuses.shape[1]):
             print 'analyzing sample #', i
-            col, bckg, col2 = self.compute_recursive_karyotype(i, plotting=False)
+            col, bckg, col2, rmndrs = self.compute_recursive_karyotype(i, plotting=False)
             chromosome_list.append(col)
-            background_list.append(bckg[0, :])
+            background_list.append(bckg)
             arms_list.append(col2)
-            all_breakpoints.append(pull_breakpoints(bckg[0, :]))
+            all_breakpoints.append(pull_breakpoints(bckg))
+            remainders_list.append(center_and_rebalance_tags(np.array(rmndrs).astype(np.float64)))
         chromosome_list = np.array(chromosome_list).astype(np.float64)
         background_list = np.vstack(tuple(background_list)).astype(np.float64)
         arms_list = np.array(arms_list).astype(np.float64)
+        remainders_list = np.array(remainders_list).astype(np.float64)
 
-        plot()
-        plot2()
-        plot3()
+        plot(chromosome_list)
+        plot2(background_list)
+        plot2(remainders_list)
+        plot(arms_list)
 
         cell_line_dict = {}
         for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(), arms_list.tolist(),
