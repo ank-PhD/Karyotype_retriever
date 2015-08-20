@@ -18,9 +18,9 @@ from src.pre_processors import get_centromeres
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
     center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags
 
-# TODO: reformat so that instead of the brokenTable we have a set of chromosome breakpoints
 
-# TODO: parametrize the collapsing parameters of the model
+# TODO: resolve the weird interference between the min length and breakpoint collapse algorithms
+# TODO: => invert collapse and separation algorithms?
 
 ##################################################################################
 # suppresses the noise from Numpy about future suppression of the boolean mask use
@@ -416,6 +416,8 @@ class Environement(object):
         amplicons = retlist[1]
         ampli_levels = retlist[2]-1
         re_retlist = copy.deepcopy(retlist)
+
+        # this is where the computation of recursion is happening.
         for i in range(0, 6):
             re_retlist = self.compute_karyotype(re_retlist[0], plotting=debug_plotting)
             if np.max(re_retlist[2])-np.min(re_retlist[2]) < 1:
@@ -502,7 +504,7 @@ class Environement(object):
         remainders_list = []
         for i in range(1, environment.locuses.shape[1]):
             print 'analyzing sample #', i
-            col, bckg, col2, rmndrs = self.compute_recursive_karyotype(i, plotting=False)
+            col, bckg, col2, rmndrs = self.compute_recursive_karyotype(i, plotting=True)
             chromosome_list.append(col)
             background_list.append(bckg)
             arms_list.append(col2)

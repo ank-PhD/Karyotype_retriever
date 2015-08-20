@@ -125,10 +125,6 @@ def center_and_rebalance_tags(source_array):
             med_min = np.percentile(source_array, 34)
             med_max = np.percentile(source_array, 66)
             med_med = np.median(source_array)
-            print mp_vals, len(lvls)
-            print lvls
-            print med_min, med_med, med_max
-            print [mp_vals[_i] for _i, _val in enumerate(lvls) if np.abs(_val - med_med)<0.01]
             lcm_med = [mp_vals[_i] for _i, _val in enumerate(lvls) if np.abs(_val - med_med) < 0.01][0]
             for _i, _lvl in enumerate(lvls):
                 if _lvl >= med_min and _lvl <= med_max:
