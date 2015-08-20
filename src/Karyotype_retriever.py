@@ -143,7 +143,7 @@ class Environement(object):
         :param breakpoints:
         :return:
         """
-        t_mat = t_test_matrix(current_lane, breakpoints)
+        t_mat = t_test_matrix(KS.brp_retriever(current_lane, breakpoints))
 
         t_mat[np.isnan(t_mat)] = 0
         t_mat = t_mat + t_mat.T
@@ -173,6 +173,7 @@ class Environement(object):
         for loc, item in enumerate(averages):
             accumulator[clust_alloc[loc]].append(item)
 
+        # here, we just split the means that are sufficiently close statistically
         accumulator = np.array([ np.average(np.array(_list)) for _list in accumulator][1:])
 
         splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
@@ -228,24 +229,32 @@ class Environement(object):
 
         # if we do a t_test_reduction, we need to do it here
 
-        breakpoints = pull_breakpoints(parsed)
-        breakpoints = sorted(list(set(breakpoints + self.chr_brps + self.centromere_brps + [current_lane.shape[0]])))
         # we perform the injection of chr breakpoints here
+        breakpoints = pull_breakpoints(parsed)
+        # TODO: revert the breakpoint injection here.
+        # it seems like a pretty bad idea, provided that the normalization brought this way might lead to loss of
+        # segmental loss or gain detected by an hmm, the basis of our method.
+        # PS: it also makes no sense methodologically
 
-        averages = [np.nanmean(x) for x in KS.brp_retriever(current_lane, breakpoints)]
+        # Nonetheless, main problems still remain in the reduction regression levels
+
+        breakpoints = sorted(list(set(breakpoints + self.chr_brps + self.centromere_brps + [current_lane.shape[0]])))
+
+        # we then compute per-breakpoints averages
+        averages, stable_averages = KS.t_test_collapse(KS.brp_retriever(current_lane, breakpoints))
         segment_averages = KS.brp_setter(breakpoints, averages)
+        stable_segment_averages = KS.brp_setter(breakpoints, stable_averages)
+
+        # and we plot the classification debug plot if debug level is 2 or above
+        if self.debug_level > 1:
+            plot_classification(parsed, self.chromosome_tag, current_lane, gauss_convolve, rolling_std,
+                                segment_averages, stable_segment_averages, threshold, plotting)
+
 
         # we compute the chromosome amplification decision here
         lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
         hr = [np.percentile(x, 75) for x in KS.brp_retriever(parsed, self.chr_brps)]
         chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
-
-        # and we plot the classification debug plot if debug level is 2 or above
-        if self.debug_level > 1:
-            plot_classification(parsed, self.chromosome_tag, current_lane, gauss_convolve, rolling_std,
-                                segment_averages, threshold, plotting)
-
-        # TODO: perform the collapse of multiple possible levels here
 
         return current_lane - segment_averages, segment_averages, parsed, np.array(chromosome_state)
 
@@ -496,7 +505,7 @@ class Environement(object):
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environment = Environement(pth, fle)
+    environment = Environement(pth, fle, debug_level=2)
     # print environment
     # print environment.compute_recursive_karyotype(40, True)
     pprint(environment.compute_all_karyotypes())

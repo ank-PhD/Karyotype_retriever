@@ -11,7 +11,8 @@ def show_2d_array(data, title=False):
     plt.show()
 
 
-def plot_classification(parsed, chr_tag, current_lane, gauss_convolve, rolling_std, segment_averages, threshold, render):
+def plot_classification(parsed, chr_tag, current_lane, gauss_convolve, rolling_std, segment_averages,
+                        stable_segment_averages, threshold, render):
 
     classification_tag = np.repeat(parsed.reshape((1, parsed.shape[0])), 100, axis=0)
 
@@ -25,7 +26,7 @@ def plot_classification(parsed, chr_tag, current_lane, gauss_convolve, rolling_s
     plt.plot(gauss_convolve, 'r', lw=2)
     plt.plot(gauss_convolve + rolling_std, 'g', lw=1)
     plt.plot(gauss_convolve - rolling_std, 'g', lw=1)
-    plt.plot(segment_averages, 'b', lw=2)
+    plt.plot(stable_segment_averages, 'b', lw=2)
     plt.axhline(y=threshold, color='c')
     plt.axhline(y=-threshold, color='c')
     plt.setp(ax2.get_xticklabels(), visible=False)

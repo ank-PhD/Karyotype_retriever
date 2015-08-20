@@ -8,6 +8,8 @@ from chiffatools import hmm
 from scipy.stats import ttest_ind
 import scipy.cluster.hierarchy as sch
 from scipy.ndimage.filters import gaussian_filter1d
+from pprint import pprint
+from chiffatools.dataviz import smooth_histogram
 
 # TODO: how can we add a "diagnostic" wrapper?
 #   => Inner debug function with the indication of level at which it kicks in, plus a location in
@@ -117,7 +119,7 @@ def HMM_constructor(coherence_length):
     return hmm.HMM(transition_probs, emission_probs)
 
 
-def t_test_matrix(current_lane, breakpoints, sample_size = 50):
+def t_test_matrix(samples, jacknife_size = 50):
     """
     Performs series of t_tests between the segments of current lane divided by breakpoints. In addition to
     that, uses an inner re-sampling to prevent discrepancies due to lane size
@@ -127,83 +129,66 @@ def t_test_matrix(current_lane, breakpoints, sample_size = 50):
 
     :param current_lane: fused list of chromosomes
     :param breakpoints: list of positions where HMM detected significant differences between elements
+    :param jacknife_size: if None or 0, will run T-test on the entire sample. Otherwise will use the provided integert
+                            to know how many elements from each collection to sample for a t-test.
     :return: matrix of P values student's t_test of difference between average ploidy segments
     """
     def inner_prepare(array):
-        return rm_nans(np.random.choice(subsets[i],
-                                        size = (sample_size,),
+        if jacknife_size:
+            return rm_nans(np.random.choice(array,
+                                        size = (jacknife_size,),
                                         replace=True))
+        else:
+            return rm_nans(array)
 
-    segment_number = len(breakpoints)
-    p_vals_matrix = np.empty((segment_number, segment_number))
+    samples_number = len(samples)
+    p_vals_matrix = np.empty((samples_number, samples_number))
     p_vals_matrix.fill(np.NaN)
-    subsets = np.split(current_lane, breakpoints[:-1])
-    for i, j in combinations(range(0, segment_number), 2):
-        _, p_val = ttest_ind(inner_prepare(subsets[i]), inner_prepare(subsets[j]), False)
+    for i, j in combinations(range(0, samples_number), 2):
+        _, p_val = ttest_ind(inner_prepare(samples[i]), inner_prepare(samples[j]), False)
         p_vals_matrix[i, j] = p_val
     return p_vals_matrix
 
 
-def t_stats_sorter(current_lane, breakpoints):
+def t_test_collapse(set_of_samples):
     """
-    Collapses the segments of chromosomes whose levels are not statistically significantly different into a single level
+    Takes in a set of samples and returns per-sample means and the groups of means that are statistically not different
 
-    :param current_lane:
-    :param breakpoints:
+    :param set_of_samples:
     :return:
     """
-    t_mat = t_test_matrix(current_lane, breakpoints)
+    nanmeans = [np.nanmean(x) for x in set_of_samples]
+
+    t_mat = t_test_matrix(set_of_samples, None)   # generate T-test matrix
 
     t_mat[np.isnan(t_mat)] = 0
     t_mat = t_mat + t_mat.T
     np.fill_diagonal(t_mat, 1)
     ct_mat = t_mat.copy()
     ct_mat[t_mat < 0.01] = 0.01
-    ct_mat = 1 - ct_mat
-
-    # until here: prepares a matrix on which clustering is done
+    ct_mat = 1 - ct_mat         # transform into a reasonable distance matrix
 
     Y = sch.linkage(ct_mat, method='centroid')
-    clust_alloc = sch.fcluster(Y, 0.95, criterion='distance')
-    # performs a hierarchical clustering
+    clust_alloc = sch.fcluster(Y, 0.95, criterion='distance')-1  # merge on the 5% rule
 
-    averages = []
-    subsets = np.split(current_lane, breakpoints[:-1])
-    for subset in subsets:
-        av = np.average(rm_nans(subset))
-        averages.append(av)
-
+    # groups together elements that are not statistcally significantly different at the 5% level
     accumulator = [[] for _ in range(0, max(clust_alloc)+1)]
-    for loc, item in enumerate(averages):
+    for loc, item in enumerate(nanmeans):
         accumulator[clust_alloc[loc]].append(item)
 
-    accumulator = np.array([ np.average(np.array(_list)) for _list in accumulator][1:])
+    accumulator = np.array([ np.nanmean(np.array(_list)) for _list in accumulator])
 
-    splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
-                                    accumulator.shape[0], axis = 0)
-    splitting_matrix = np.abs(splitting_matrix - splitting_matrix.T)
+    collapsed_means = np.empty_like(nanmeans)
+    collapsed_means.fill(np.nan)
 
-    Y_2 = sch.linkage(splitting_matrix, method='centroid')
-    clust_alloc_2 = sch.fcluster(Y_2, 0.95, criterion='distance')
+    for i, j in enumerate(clust_alloc.tolist()):
+        collapsed_means[i] = accumulator[j]
 
-    accumulator_2 = [[] for _ in range(0, max(clust_alloc_2)+1)]
-    for loc, item in enumerate(accumulator):
-        accumulator_2[clust_alloc_2[loc]].append(item)
-    accumulator_2 = np.array([ np.average(np.array(_list)) for _list in accumulator_2][1:])
+    return nanmeans, collapsed_means
 
-    sorter_l = np.argsort(accumulator_2)
-    sorter = dict((pos, i) for i, pos in enumerate(sorter_l))
 
-    brp_pad = generate_breakpoint_mask(breakpoints)
-    resulting_array = np.empty_like(brp_pad)
-    resulting_array.fill(np.nan)
-
-    for i in range(0, len(clust_alloc)):
-        resulting_array[brp_pad == i] = sorter[clust_alloc_2[clust_alloc[i]-1]-1] # -1 are due to the sift introduced by the element
-
-# as a sidenote, there is a lot of interval manipulations that get manipulated by different methods
-#   and that render the code very confusing
-
+def means_collapse(set_of_means):
+    pass
 
 
 def rolling_window(base_array, window_size):
