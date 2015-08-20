@@ -16,11 +16,15 @@ from chiffatools import hmm
 from chiffatools.Linalg_routines import rm_nans
 from src.pre_processors import get_centromeres
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
-    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags
-
+    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags, HMM_constructor
+import src.Karyotype_support as KS
+from src.Drawing_functions import plot_classification, multi_level_plot, show_2d_array
 
 # TODO: resolve the weird interference between the min length and breakpoint collapse algorithms
 # TODO: => invert collapse and separation algorithms?
+
+# TODO: tor the T-test, in addition to the actual p_value, use actual size of difference (p_val for a sample of 10?)
+# TODO: force chromosome breakpoints re-set before computing the pyramid of collapses
 
 ##################################################################################
 # suppresses the noise from Numpy about future suppression of the boolean mask use
@@ -31,12 +35,8 @@ from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoint
 ####################################################
 # Defines the parsing HMM and matrices underlying it
 ####################################################
-transition_probs = np.ones((3, 3)) * 0.001
-np.fill_diagonal(transition_probs, 0.998)
 initial_dist = np.array([[0.33, 0.34, 0.33]])
-emission_probs = np.ones((3, 3)) * 0.1
-np.fill_diagonal(emission_probs, 0.8)
-parsing_hmm = hmm.HMM(transition_probs, emission_probs)
+parsing_hmm = HMM_constructor(10)
 
 
 class Environement(object):
@@ -44,7 +44,7 @@ class Environement(object):
     Just a payload object to carry around environment variables that are specific to the implementation
     """
 
-    def __init__(self, _path, _file, min_seg_support=25, collapse_segs=3):
+    def __init__(self, _path, _file, min_seg_support=25, collapse_segs=3, debug_level=0):
 
         self.header = None
         self.chr_brps = None
@@ -58,6 +58,7 @@ class Environement(object):
         self.segments = None
         self.min_seg_support = min_seg_support
         self.collapse_segs = collapse_segs
+        self.debug_level = debug_level
 
         if _file is not None:
             paramdict = self.wrap_import(_path, _file)
@@ -133,15 +134,6 @@ class Environement(object):
         return "\n".join(render_string)
 
 
-    def simple_t_test_matrix(self, current_lane):
-        dst = self.broken_table.shape[0]  # TODO: switch to the chr_brps
-        p_vals = np.empty((dst, dst))
-        p_vals.fill(np.NaN)
-        for i, j in self.combinations(range(0, dst), 2):
-            _, p_val = ttest_ind(rm_nans(current_lane[self.broken_table[i, :]]), rm_nans(current_lane[self.broken_table[j, :]]), False)
-            p_vals[i, j] = p_val
-        return p_vals
-
 
     def t_statistic_sorter(self, current_lane, breakpoints=None):
         """
@@ -151,10 +143,7 @@ class Environement(object):
         :param breakpoints:
         :return:
         """
-        if breakpoints is None:
-            t_mat = self.simple_t_test_matrix(current_lane)
-        else:
-            t_mat = t_test_matrix(current_lane, breakpoints)
+        t_mat = t_test_matrix(current_lane, breakpoints)
 
         t_mat[np.isnan(t_mat)] = 0
         t_mat = t_mat + t_mat.T
@@ -172,7 +161,7 @@ class Environement(object):
         averages = []
         # if HMM detected nothing, perform a swap
         if breakpoints is None:
-            for i in range(0, 24):
+            for i in range(0, 24): #separate treatments for chromosomes here
                 averages.append(np.median(rm_nans(current_lane[self.broken_table[i]])))  # TODO: switch to the chr_brps
         else:
             subsets = np.split(current_lane, breakpoints[:-1])
@@ -181,18 +170,17 @@ class Environement(object):
                 averages.append(av)
 
         accumulator = [[] for _ in range(0, max(clust_alloc)+1)]
-        debug_acc = [[[], []] for _ in range(0, max(clust_alloc)+1)]
         for loc, item in enumerate(averages):
             accumulator[clust_alloc[loc]].append(item)
-            debug_acc[clust_alloc[loc]][0].append(loc)
-            debug_acc[clust_alloc[loc]][1].append(item)
-
 
         accumulator = np.array([ np.average(np.array(_list)) for _list in accumulator][1:])
 
         splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
                                         accumulator.shape[0], axis = 0)
         splitting_matrix = np.abs(splitting_matrix - splitting_matrix.T)
+
+        show_2d_array(ct_mat, 'corrected p_values_matrix')
+        show_2d_array(splitting_matrix, 'splitting matrix')
 
         Y_2 = sch.linkage(splitting_matrix, method='centroid')
 
@@ -230,84 +218,36 @@ class Environement(object):
 
     def compute_karyotype(self, current_lane, plotting=False):
 
-        def support_function(x, y):
-            if x == 0 and y == 0:
-                return 0
-            if x == -1 and y <= 0:
-                return -1
-            if x >= 0 and y == 1:
-                return 1
-            if x == -1 and y == 1:
-                return 0
+        current_lane = current_lane - np.nanmean(current_lane) # sets the mean to 0
 
-        def plot_classification():
+        # binariztion, plus variables for debugging.
+        binarized, gauss_convolve, rolling_std, threshold = KS.binarize(current_lane)
 
-            classification_tag = np.repeat(parsed.reshape((1, parsed.shape[0])), 100, axis=0)
-
-            ax1 = plt.subplot(311)
-            plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-            plt.imshow(classification_tag, interpolation='nearest', cmap='coolwarm', vmin=0, vmax=2)
-            plt.setp(ax1.get_xticklabels(), fontsize=6)
-
-            ax2 = plt.subplot(312, sharex=ax1)
-            plt.plot(current_lane, 'k.')
-            plt.plot(gauss_convolve, 'r', lw=2)
-            plt.plot(gauss_convolve+rolling_std, 'g', lw=1)
-            plt.plot(gauss_convolve-rolling_std, 'g', lw=1)
-            plt.plot(segment_averages, 'b', lw=2)
-            plt.axhline(y=threshold, color='c')
-            plt.axhline(y=-threshold, color='c')
-            plt.setp(ax2.get_xticklabels(), visible=False)
-
-            ax3 = plt.subplot(313, sharex=ax1)
-            plt.plot(current_lane-segment_averages, 'k.')
-
-            plt.show()
-
-        current_lane = current_lane - np.mean(rm_nans(current_lane))
-
-        gauss_convolve = np.empty(current_lane.shape)
-        gauss_convolve.fill(np.NaN)
-        gauss_convolve[np.logical_not(np.isnan(current_lane))] = smooth_signal(rm_nans(current_lane), 10, order=0, mode='mirror')
-
-        rolling_std = np.empty(current_lane.shape)
-        rolling_std.fill(np.NaN)
-        payload = np.std(rolling_window(rm_nans(current_lane), 10), 1)
-        c1, c2 = (np.sum(np.isnan(current_lane[:5])), np.sum(np.isnan(current_lane[-4:])))
-        rolling_std[5:-4][np.logical_not(np.isnan(current_lane))[5:-4]] = np.lib.pad(payload,
-                                                                                     (c1, c2),
-                                                                                     'constant',
-                                                                                     constant_values=(np.NaN, np.NaN))
-
-        corrfact = np.random.randint(-5, 5)
-        threshold = np.percentile(rm_nans(rolling_std), 75+corrfact)
-        binarized = (current_lane > threshold).astype(np.int16) - (current_lane < -threshold) + 1
+        # actual location of HMM execution
         parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized))
 
+        # if we do a t_test_reduction, we need to do it here
+
         breakpoints = pull_breakpoints(parsed)
+        breakpoints = sorted(list(set(breakpoints + self.chr_brps + self.centromere_brps + [current_lane.shape[0]])))
+        # we perform the injection of chr breakpoints here
 
-        segment_averages = np.empty(current_lane.shape)
-        subsets = np.split(current_lane, breakpoints)
+        averages = [np.nanmean(x) for x in KS.brp_retriever(current_lane, breakpoints)]
+        segment_averages = KS.brp_setter(breakpoints, averages)
 
-        breakpoints.append(current_lane.shape[0])
+        # we compute the chromosome amplification decision here
+        lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
+        hr = [np.percentile(x, 75) for x in KS.brp_retriever(parsed, self.chr_brps)]
+        chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
 
-        pre_brp = 0
-        for subset, brp in izip(subsets, breakpoints):
-            av = np.average(rm_nans(subset))
-            segment_averages[pre_brp : brp] = av
-            pre_brp = brp
+        # and we plot the classification debug plot if debug level is 2 or above
+        if self.debug_level > 1:
+            plot_classification(parsed, self.chromosome_tag, current_lane, gauss_convolve, rolling_std,
+                                segment_averages, threshold, plotting)
 
-        collector = []
+        # TODO: perform the collapse of multiple possible levels here
 
-        for i in self.chroms:
-            lw = np.percentile(parsed[self.broken_table[i-1, :]]-1, 25)  # TODO: switch to the chr_brps
-            hr = np.percentile(parsed[self.broken_table[i-1, :]]-1, 75)  # TODO: switch to the chr_brps
-            collector.append(support_function(lw, hr))
-
-        if plotting:
-            plot_classification()
-
-        return current_lane-segment_averages, segment_averages, parsed, np.array(collector)
+        return current_lane - segment_averages, segment_averages, parsed, np.array(chromosome_state)
 
 
     def compute_recursive_karyotype(self, lane, plotting=False, debug_plotting=False):

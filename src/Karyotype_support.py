@@ -4,25 +4,206 @@ import numpy as np
 from matplotlib import pyplot as plt
 from itertools import combinations
 from chiffatools.Linalg_routines import rm_nans
+from chiffatools import hmm
 from scipy.stats import ttest_ind
+import scipy.cluster.hierarchy as sch
+from scipy.ndimage.filters import gaussian_filter1d
+
+# TODO: how can we add a "diagnostic" wrapper?
+#   => Inner debug function with the indication of level at which it kicks in, plus a location in
+#   code where it starts working
+
+def support_function(x, y):
+    if x == 0 and y == 0:
+        return 0
+    if x == -1 and y <= 0:
+        return -1
+    if x >= 0 and y == 1:
+        return 1
+    if x == -1 and y == 1:
+        return 0
 
 
-def t_test_matrix(current_lane, breakpoints):
+
+def binarize(current_lane):
     """
-    Performs series of t_tests between the segments of current lane divided by breakpoints
+
+    :param current_lane:
+    :return:
+    """
+
+    def render_for_debug():
+        pass
+
+    gauss_convolve = np.empty(current_lane.shape)
+    gauss_convolve.fill(np.NaN)
+    gauss_convolve[np.logical_not(np.isnan(current_lane))] = gaussian_filter1d(rm_nans(current_lane), 10, order=0, mode='mirror')
+
+    rolling_std = np.empty(current_lane.shape)
+    rolling_std.fill(np.NaN)
+    payload = np.std(rolling_window(rm_nans(current_lane), 10), 1)
+    c1, c2 = (np.sum(np.isnan(current_lane[:5])), np.sum(np.isnan(current_lane[-4:])))
+    rolling_std[5:-4][np.logical_not(np.isnan(current_lane))[5:-4]] = np.lib.pad(payload,
+                                                                                 (c1, c2),
+                                                                                 'constant',
+                                                                                 constant_values=(np.NaN, np.NaN))
+
+    corrfact = np.random.randint(-5, 5) # to prevent the oscillatory lock-ins
+    threshold = np.percentile(rm_nans(rolling_std), 75+corrfact)    # threshold where the HMM will kick in
+    binarized = (current_lane > threshold).astype(np.int16) - (current_lane < -threshold) + 1
+
+    render_for_debug()
+
+    return binarized, gauss_convolve, rolling_std, threshold
+
+
+def brp_retriever(array, breakpoints_set):
+    """
+    Retrieves values on the segments defined by the breakpoints.
+
+    :param array:
+    :param breakpoints_set:
+    :return: the values in array contained between breakpoints
+    """
+    breakpoints_set = sorted(list(set(breakpoints_set))) # sorts tbe breakpoints
+    if breakpoints_set[-1] == array.shape[0]:
+        breakpoints_set = breakpoints_set[:-1]  # just in case end of array was already included
+    values = np.split(array, breakpoints_set) # retrieves the values
+    return values
+
+
+def brp_setter(breakpoints_set, prebreakpoint_values):
+    """
+    Creates an array of the size defined by the biggest element of the breakpoints set and sets the
+    intervals values to prebreakpoint_values. It assumes that the largest element of breakpoints set
+    is equal to the size of desired array
+
+    :param array:
+    :param breakpoints_set:
+    :param prebreakpoint_values:
+    :return:
+    """
+    assert(len(breakpoints_set)==len(prebreakpoint_values))
+    breakpoints_set = sorted(list(set(breakpoints_set))) # sorts the breakpoints
+    support = np.empty((breakpoints_set[-1], )) # creates array to be filled
+    support.fill(np.nan)
+
+    pre_brp = 0 # fills the array
+    for value, brp in zip(prebreakpoint_values, breakpoints_set):
+        support[pre_brp:brp] = value
+        pre_brp = brp
+
+    return support
+
+
+def HMM_constructor(coherence_length):
+    """
+    Builds an HMM with the defined coherence length (minimal number of deviating points before a switch occurs
+    to a different level)
+
+    :param coherence_length:
+    :return:
+    """
+
+    el2 = 0.1
+    el1 = el2/np.power(10, coherence_length/2.0)
+
+    transition_probs = np.ones((3, 3)) * el1
+    np.fill_diagonal(transition_probs, 1 - 2*el1)
+
+    emission_probs = np.ones((3, 3)) * el2
+    np.fill_diagonal(emission_probs, 1 - 2*el2)
+
+    return hmm.HMM(transition_probs, emission_probs)
+
+
+def t_test_matrix(current_lane, breakpoints, sample_size = 50):
+    """
+    Performs series of t_tests between the segments of current lane divided by breakpoints. In addition to
+    that, uses an inner re-sampling to prevent discrepancies due to lane size
+
+    Alternative: use normalized differences in level (mean/std)
+    Even better: use Tuckey test
 
     :param current_lane: fused list of chromosomes
     :param breakpoints: list of positions where HMM detected significant differences between elements
     :return: matrix of P values student's t_test of difference between average ploidy segments
     """
+    def inner_prepare(array):
+        return rm_nans(np.random.choice(subsets[i],
+                                        size = (sample_size,),
+                                        replace=True))
+
     segment_number = len(breakpoints)
     p_vals_matrix = np.empty((segment_number, segment_number))
     p_vals_matrix.fill(np.NaN)
     subsets = np.split(current_lane, breakpoints[:-1])
     for i, j in combinations(range(0, segment_number), 2):
-        _, p_val = ttest_ind(rm_nans(subsets[i]), rm_nans(subsets[j]), False)
+        _, p_val = ttest_ind(inner_prepare(subsets[i]), inner_prepare(subsets[j]), False)
         p_vals_matrix[i, j] = p_val
     return p_vals_matrix
+
+
+def t_stats_sorter(current_lane, breakpoints):
+    """
+    Collapses the segments of chromosomes whose levels are not statistically significantly different into a single level
+
+    :param current_lane:
+    :param breakpoints:
+    :return:
+    """
+    t_mat = t_test_matrix(current_lane, breakpoints)
+
+    t_mat[np.isnan(t_mat)] = 0
+    t_mat = t_mat + t_mat.T
+    np.fill_diagonal(t_mat, 1)
+    ct_mat = t_mat.copy()
+    ct_mat[t_mat < 0.01] = 0.01
+    ct_mat = 1 - ct_mat
+
+    # until here: prepares a matrix on which clustering is done
+
+    Y = sch.linkage(ct_mat, method='centroid')
+    clust_alloc = sch.fcluster(Y, 0.95, criterion='distance')
+    # performs a hierarchical clustering
+
+    averages = []
+    subsets = np.split(current_lane, breakpoints[:-1])
+    for subset in subsets:
+        av = np.average(rm_nans(subset))
+        averages.append(av)
+
+    accumulator = [[] for _ in range(0, max(clust_alloc)+1)]
+    for loc, item in enumerate(averages):
+        accumulator[clust_alloc[loc]].append(item)
+
+    accumulator = np.array([ np.average(np.array(_list)) for _list in accumulator][1:])
+
+    splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
+                                    accumulator.shape[0], axis = 0)
+    splitting_matrix = np.abs(splitting_matrix - splitting_matrix.T)
+
+    Y_2 = sch.linkage(splitting_matrix, method='centroid')
+    clust_alloc_2 = sch.fcluster(Y_2, 0.95, criterion='distance')
+
+    accumulator_2 = [[] for _ in range(0, max(clust_alloc_2)+1)]
+    for loc, item in enumerate(accumulator):
+        accumulator_2[clust_alloc_2[loc]].append(item)
+    accumulator_2 = np.array([ np.average(np.array(_list)) for _list in accumulator_2][1:])
+
+    sorter_l = np.argsort(accumulator_2)
+    sorter = dict((pos, i) for i, pos in enumerate(sorter_l))
+
+    brp_pad = generate_breakpoint_mask(breakpoints)
+    resulting_array = np.empty_like(brp_pad)
+    resulting_array.fill(np.nan)
+
+    for i in range(0, len(clust_alloc)):
+        resulting_array[brp_pad == i] = sorter[clust_alloc_2[clust_alloc[i]-1]-1] # -1 are due to the sift introduced by the element
+
+# as a sidenote, there is a lot of interval manipulations that get manipulated by different methods
+#   and that render the code very confusing
+
 
 
 def rolling_window(base_array, window_size):
@@ -170,3 +351,6 @@ def position_centromere_breakpoints(chr2centromere_loc, chr_location_arr, broken
         local_idx = np.argmax(chr_location_arr[broken_table[chromosome-1], 2] > centromere_location)
         global_indexes[chromosome-1] = chr_location_arr[broken_table[chromosome-1], 0][local_idx]
     return global_indexes
+
+if __name__ == "__main__":
+    print HMM_constructor(3)
