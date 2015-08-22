@@ -10,6 +10,8 @@ import scipy.cluster.hierarchy as sch
 from scipy.ndimage.filters import gaussian_filter1d
 from pprint import pprint
 from chiffatools.dataviz import smooth_histogram
+from basic_drawing import show_2d_array
+from scipy.stats import norm, poisson
 
 # TODO: how can we add a "diagnostic" wrapper?
 #   => Inner debug function with the indication of level at which it kicks in, plus a location in
@@ -27,10 +29,12 @@ def support_function(x, y):
 
 
 
-def binarize(current_lane):
+def binarize(current_lane, FDR=0.5, window_size=10):
     """
 
     :param current_lane:
+    :param FDR: currently not eforced
+    :param window_size: currently not enforced
     :return:
     """
 
@@ -110,6 +114,8 @@ def HMM_constructor(coherence_length):
     el2 = 0.1
     el1 = el2/np.power(10, coherence_length/2.0)
 
+    print 'el1: %s, el2: %s'% (el1, el2)
+
     transition_probs = np.ones((3, 3)) * el1
     np.fill_diagonal(transition_probs, 1 - 2*el1)
 
@@ -157,6 +163,8 @@ def t_test_collapse(set_of_samples):
     :param set_of_samples:
     :return:
     """
+    print 'set of samples length:', len(set_of_samples)
+
     nanmeans = [np.nanmean(x) for x in set_of_samples]
 
     t_mat = t_test_matrix(set_of_samples, None)   # generate T-test matrix
@@ -167,6 +175,8 @@ def t_test_collapse(set_of_samples):
     ct_mat = t_mat.copy()
     ct_mat[t_mat < 0.01] = 0.01
     ct_mat = 1 - ct_mat         # transform into a reasonable distance matrix
+
+    show_2d_array(ct_mat, 'Inverted p_value matrix')
 
     Y = sch.linkage(ct_mat, method='centroid')
     clust_alloc = sch.fcluster(Y, 0.95, criterion='distance')-1  # merge on the 5% rule
@@ -187,8 +197,55 @@ def t_test_collapse(set_of_samples):
     return nanmeans, collapsed_means
 
 
-def means_collapse(set_of_means):
+def collapse_means(set_of_means, set_of_stds):
     pass
+
+
+def Tukey_outliers(set_of_means, FDR=0.005):
+    """
+    Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
+
+    :param set_of_means:
+    :param FDR:
+    :return:
+    """
+    # false discovery rate v.s. expected falses v.s. power
+    q1_q3 = norm.interval(0.5)
+    FDR_q1_q3 = norm.interval(1 - FDR)
+    multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
+    l_means = len(set_of_means)
+
+    print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
+                                                                                  poisson.interval(0.95, FDR*l_means))
+
+    q1 = np.percentile(set_of_means, 25)
+    q3 = np.percentile(set_of_means, 75)
+    high_fence = q1 + multiplier*(q3 - q1)
+    low_fence = q3 - multiplier*(q3 - q1)
+
+    ho = (set_of_means < low_fence).nonzero()[0]
+    lo = (set_of_means > high_fence).nonzero()[0]
+
+    print ho
+
+    return lo, ho
+
+
+def gini_compression(set_of_means):
+    set_of_means = rm_nans(set_of_means.astype(np.float))
+    sorting_index = np.argsort(set_of_means)
+    sorted_set = set_of_means[sorting_index]
+    sorted_set -= np.min(sorted_set)
+    total = sorted_set.sum()
+    normalized_set = sorted_set/total
+    csum = np.cumsum(normalized_set)
+    gini = (np.linspace(0, 1, csum.shape[0])-csum).sum()/float(csum.shape[0])
+
+    plt.title(gini)
+    plt.plot(csum, 'k')
+    plt.plot(np.linspace(0, 1, csum.shape[0]), 'r')
+    plt.show()
+
 
 
 def rolling_window(base_array, window_size):
@@ -337,5 +394,10 @@ def position_centromere_breakpoints(chr2centromere_loc, chr_location_arr, broken
         global_indexes[chromosome-1] = chr_location_arr[broken_table[chromosome-1], 0][local_idx]
     return global_indexes
 
+
 if __name__ == "__main__":
-    print HMM_constructor(3)
+    # print HMM_constructor(3)
+    # print means_collapse(np.linspace(0,1,10), 0.1)
+    # gini_compression(np.linspace(0,1,10))
+    gini_compression(np.random.normal(size=100))
+    gini_compression(np.random.poisson(5, 100))

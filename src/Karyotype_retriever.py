@@ -18,7 +18,8 @@ from src.pre_processors import get_centromeres
 from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
     center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags, HMM_constructor
 import src.Karyotype_support as KS
-from src.Drawing_functions import plot_classification, multi_level_plot, show_2d_array
+from src.Drawing_functions import plot_classification, multi_level_plot
+from  src.basic_drawing import show_2d_array
 
 # TODO: resolve the weird interference between the min length and breakpoint collapse algorithms
 # TODO: => invert collapse and separation algorithms?
@@ -36,7 +37,6 @@ from src.Drawing_functions import plot_classification, multi_level_plot, show_2d
 # Defines the parsing HMM and matrices underlying it
 ####################################################
 initial_dist = np.array([[0.33, 0.34, 0.33]])
-parsing_hmm = HMM_constructor(10)
 
 
 class Environement(object):
@@ -217,7 +217,15 @@ class Environement(object):
         return re_classification_tag
 
 
-    def compute_karyotype(self, current_lane, plotting=False):
+    def HMM_regress(self, current_lane, coherence_length = 10):
+        """
+        Performs a regression of current lane by an hmm with a defined coherence length
+
+        :param current_lane:
+        :param coherence_length:
+        :return:
+        """
+        parsing_hmm = HMM_constructor(coherence_length)
 
         current_lane = current_lane - np.nanmean(current_lane) # sets the mean to 0
 
@@ -225,51 +233,31 @@ class Environement(object):
         binarized, gauss_convolve, rolling_std, threshold = KS.binarize(current_lane)
 
         # actual location of HMM execution
-        parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized))
-
-        # if we do a t_test_reduction, we need to do it here
+        parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized))-1
 
         # we perform the injection of chr breakpoints here
         breakpoints = pull_breakpoints(parsed)
-        # TODO: revert the breakpoint injection here.
-        # it seems like a pretty bad idea, provided that the normalization brought this way might lead to loss of
-        # segmental loss or gain detected by an hmm, the basis of our method.
-        # PS: it also makes no sense methodologically
-
-        # Nonetheless, main problems still remain in the reduction regression levels
-
-        breakpoints = sorted(list(set(breakpoints + self.chr_brps + self.centromere_brps + [current_lane.shape[0]])))
+        breakpoints = sorted(list(set(breakpoints + [current_lane.shape[0]])))
 
         # we then compute per-breakpoints averages
-        averages, stable_averages = KS.t_test_collapse(KS.brp_retriever(current_lane, breakpoints))
+        averages= [np.nanmean(x) for x in KS.brp_retriever(current_lane, breakpoints)]
         segment_averages = KS.brp_setter(breakpoints, averages)
-        stable_segment_averages = KS.brp_setter(breakpoints, stable_averages)
 
         # and we plot the classification debug plot if debug level is 2 or above
         if self.debug_level > 1:
-            plot_classification(parsed, self.chromosome_tag, current_lane, gauss_convolve, rolling_std,
-                                segment_averages, stable_segment_averages, threshold, plotting)
+            plot_classification(parsed, self.chromosome_tag[0, :], current_lane, gauss_convolve, rolling_std,
+                                segment_averages, binarized-1, threshold)
+
+        # we compute the chromosome amplification decision here. TODO: move for recursive conclusion
+        # lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
+        # hr = [np.percentile(x, 75) for x in KS.brp_retriever(parsed, self.chr_brps)]
+        # chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
+
+        return current_lane - segment_averages, segment_averages, parsed
 
 
-        # we compute the chromosome amplification decision here
-        lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
-        hr = [np.percentile(x, 75) for x in KS.brp_retriever(parsed, self.chr_brps)]
-        chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
+    def recursive_HMM_regression(self, lane):
 
-        return current_lane - segment_averages, segment_averages, parsed, np.array(chromosome_state)
-
-
-    def compute_recursive_karyotype(self, lane, plotting=False, debug_plotting=False):
-
-        def support_function(x, y):
-            if x == 0 and y == 0:
-                return 0
-            if x < 0 and y <= 0:
-                return -1
-            if x >= 0 and y > 0:
-                return 1
-            if x < 0 and y > 0:
-                return 0
 
         def determine_locality():
             breakpoint_accumulator = []
@@ -312,7 +300,7 @@ class Environement(object):
             shortness_ladder = inflate_support(current_lane.shape[0], shortness_breakpoints)[0, :]
 
             filled_in = re_class_tag.copy().astype(np.float)
-            levels = amplicons.copy()
+            levels = HMM_regression.copy()
             prv_brp = 0
             non_short_selector = np.logical_not(shortness[0, :].astype(np.bool))
 
@@ -325,31 +313,31 @@ class Environement(object):
                         non_modified = True
                         if parsed[prv_brp-1] == parsed[breakpoint+1]:
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
-                            levels[current_fltr] = amplicons[prv_brp - 1]
+                            levels[current_fltr] = HMM_regression[prv_brp - 1]
                             non_modified = False
                         if prv_brp in self.chr_brps and breakpoint not in self.chr_brps: #TODO: add range+collapse
                             filled_in[:, current_fltr] = parsed[breakpoint + 1]
-                            levels[current_fltr] = amplicons[breakpoint + 1]
+                            levels[current_fltr] = HMM_regression[breakpoint + 1]
                             non_modified = False
                         if breakpoint in self.chr_brps and prv_brp not in self.chr_brps: #TODO: add range+collapse
                             filled_in[:, current_fltr] = parsed[prv_brp - 1]
-                            levels[current_fltr] = amplicons[prv_brp - 1]
+                            levels[current_fltr] = HMM_regression[prv_brp - 1]
                             non_modified = False
                         if non_modified:
                             cur_chr = self.chr_arr[breakpoint]
-                            chr_median = np.median(amplicons[np.logical_and(cur_chr, non_short_selector)])
+                            chr_median = np.median(HMM_regression[np.logical_and(cur_chr, non_short_selector)])
                             lar = np.array([prv_brp-1, breakpoint+1])
-                            lval = amplicons[lar]
+                            lval = HMM_regression[lar]
                             vl = np.argmin(lval-chr_median)
                             filled_in[:, current_fltr] = parsed[lar[vl]]
-                            levels[current_fltr] = amplicons[lar[vl]]
+                            levels[current_fltr] = HMM_regression[lar[vl]]
                     else :
-                        average = np.average(amplicons[current_fltr])
-                        closest_index = np.argmin(np.abs(amplicons[non_short_selector] - average))
+                        average = np.average(HMM_regression[current_fltr])
+                        closest_index = np.argmin(np.abs(HMM_regression[non_short_selector] - average))
                         closest_index = np.array(range(0, shortness_breakpoints[-1]))[non_short_selector][closest_index]
                         color = parsed[closest_index]
                         filled_in[:, current_fltr] = color
-                        levels[current_fltr] = amplicons[closest_index]
+                        levels[current_fltr] = HMM_regression[closest_index]
                 prv_brp = breakpoint
             # =>
 
@@ -359,23 +347,44 @@ class Environement(object):
             return  shortness, filled_in, levels
 
 
-        current_lane = self.locuses[:, lane]
-        retlist = self.compute_karyotype(current_lane, plotting=debug_plotting)
+        def regression_round(coherence_lenght, max_rounds):
+            for i in range(0, max_rounds):
+                reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght)
+                if np.max(HMM_levels) - np.min(HMM_levels) < 1:
+                    break
+                else:
+                    reg_remainders.append(reg_remainder)
+                    HMM_regressions.append(HMM_reg)
+                    HMM_level_decisions.append(HMM_levels)
 
-        amplicons = retlist[1]
-        ampli_levels = retlist[2]-1
-        re_retlist = copy.deepcopy(retlist)
+
+        current_lane = self.locuses[:, lane]
+
+        reg_remainders = [current_lane]
+        HMM_regressions = []
+        HMM_level_decisions = []
 
         # this is where the computation of recursion is happening.
-        for i in range(0, 6):
-            re_retlist = self.compute_karyotype(re_retlist[0], plotting=debug_plotting)
-            if np.max(re_retlist[2])-np.min(re_retlist[2]) < 1:
-                break
-            else:
-                amplicons += re_retlist[1]
-                ampli_levels += re_retlist[2] - 1
+        regression_round(10, 6)
 
-        breakpoints = pull_breakpoints(ampli_levels)
+        # make a final fine-grained parse
+        regression_round(3, 3)
+
+        final_regression = np.array(HMM_regressions).sum(0)
+
+        if self.debug_level > 0:
+            multi_level_plot(self.chromosome_tag[0, :], current_lane, final_regression, reg_remainders[-1],
+                             HMM_regressions, HMM_level_decisions, reg_remainders)
+
+        print np.nanstd(reg_remainders[-1])
+        print np.nanpercentile(np.abs(reg_remainders[-1]), 66)
+
+        # TODO: test "all hmm levels are the same"
+        # TODO: test "reduce hmm levels complexity"
+
+        raise Exception("in refactoring")
+
+        breakpoints = pull_breakpoints(HMM_level_decision)
         # the next couple of lines stabilizes the nan-level removal
         brp_def_segs = np.split(np.array(current_lane), np.array(breakpoints))
         selection_mask = np.logical_not(np.array([np.isnan(np.nanmean(arr)) for arr in brp_def_segs]))
@@ -392,14 +401,14 @@ class Environement(object):
         for i in self.chroms:
             lw = np.percentile(parsed[self.broken_table[i-1, :]], 25)  # TODO: switch to the chr_brps
             hr = np.percentile(parsed[self.broken_table[i-1, :]], 75)  # TODO: switch to the chr_brps
-            collector.append(support_function(lw, hr))
+            collector.append(KS.support_function(lw, hr))
 
         collector2 = []
         for segment in self.segments:
             if segment[1]-segment[0] > 0:
                 lw = np.percentile(parsed[segment[0]:segment[1]], 25)
                 hr = np.percentile(parsed[segment[0]:segment[1]], 75)
-                collector2.append(support_function(lw, hr))
+                collector2.append(KS.support_function(lw, hr))
             else:
                 collector2.append(np.nan)
 
@@ -411,7 +420,7 @@ class Environement(object):
 
             ax2 = plt.subplot(512, sharex=ax1)
             plt.plot(self.locuses[:, lane]-np.average(rm_nans(self.locuses[:, lane])), 'k.')
-            plt.plot(amplicons, 'r', lw=2)
+            plt.plot(HMM_regression, 'r', lw=2)
             plt.setp(ax2.get_xticklabels(), visible=False)
 
             ax3 = plt.subplot(513, sharex=ax1, sharey=ax2)
@@ -419,7 +428,7 @@ class Environement(object):
             plt.setp(ax3.get_xticklabels(), visible=False)
 
             ax4 = plt.subplot(514, sharex=ax1, sharey=ax2)
-            plt.plot(amplicons-corrected_levels, 'g', lw=2)
+            plt.plot(HMM_regression-corrected_levels, 'g', lw=2)
             plt.setp(ax4.get_xticklabels(), visible=False)
 
             ax5 = plt.subplot(515, sharex=ax1)
@@ -430,7 +439,7 @@ class Environement(object):
 
             plt.show()
 
-        return collector, background[0, :], collector2, amplicons-background[0, :]
+        return collector, background[0, :], collector2, HMM_regression-background[0, :]
 
 
     def compute_all_karyotypes(self):
@@ -453,7 +462,7 @@ class Environement(object):
         remainders_list = []
         for i in range(1, environment.locuses.shape[1]):
             print 'analyzing sample #', i
-            col, bckg, col2, rmndrs = self.compute_recursive_karyotype(i, plotting=True)
+            col, bckg, col2, rmndrs = self.recursive_HMM_regression(i)
             chromosome_list.append(col)
             background_list.append(bckg)
             arms_list.append(col2)
@@ -505,7 +514,7 @@ class Environement(object):
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environment = Environement(pth, fle, debug_level=2)
+    environment = Environement(pth, fle, debug_level=1)
     # print environment
     # print environment.compute_recursive_karyotype(40, True)
     pprint(environment.compute_all_karyotypes())
