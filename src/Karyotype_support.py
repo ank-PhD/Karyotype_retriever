@@ -13,9 +13,6 @@ from chiffatools.dataviz import smooth_histogram
 from basic_drawing import show_2d_array
 from scipy.stats import norm, poisson
 
-# TODO: how can we add a "diagnostic" wrapper?
-#   => Inner debug function with the indication of level at which it kicks in, plus a location in
-#   code where it starts working
 
 def support_function(x, y):
     if x == 0 and y == 0:
@@ -166,7 +163,7 @@ def collapse_means(set_of_means, set_of_stds):
     pass
 
 
-def Tukey_outliers(set_of_means, FDR=0.005):
+def Tukey_outliers(set_of_means, FDR=0.005, contracted_interval=0.5, verbose=False):
     """
     Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
 
@@ -175,39 +172,34 @@ def Tukey_outliers(set_of_means, FDR=0.005):
     :return:
     """
     # false discovery rate v.s. expected falses v.s. power
-    q1_q3 = norm.interval(0.5)
+    q1_q3 = norm.interval(contracted_interval)
     FDR_q1_q3 = norm.interval(1 - FDR)
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
-    print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
+    if verbose:
+        print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
                                                                                   poisson.interval(0.95, FDR*l_means))
 
-    q1 = np.percentile(set_of_means, 25)
-    q3 = np.percentile(set_of_means, 75)
+    q1 = np.percentile(set_of_means, 50*(1-contracted_interval))
+    q3 = np.percentile(set_of_means, 50*(1+contracted_interval))
     high_fence = q1 + multiplier*(q3 - q1)
     low_fence = q3 - multiplier*(q3 - q1)
 
     ho = (set_of_means < low_fence).nonzero()[0]
     lo = (set_of_means > high_fence).nonzero()[0]
 
-    print ho
-
     return lo, ho
 
 
 def binarize(current_lane, FDR=0.05):
     """
+    Retrieves the outliers for the HMM to process
 
     :param current_lane: array of markers in order
     :param FDR: false discovery rate
     :return:
     """
-
-    def render_for_debug():
-        pass
-
-
     binarized = np.empty_like(current_lane)
     binarized.fill(1)
 
@@ -217,6 +209,35 @@ def binarize(current_lane, FDR=0.05):
     binarized[lo] = 2 # Inverted because of legacy reasons
 
     return binarized
+
+
+def old_padded_means(lane, HMM_levels):
+    """
+    padding of each contig separately
+
+    :param lane:
+    :param HMM_levels:
+    :return:
+    """
+    breakpoints = pull_breakpoints(HMM_levels)
+    breakpoints = sorted(list(set(breakpoints + [lane.shape[0]])))
+    averages = [np.nanmean(x) for x in brp_retriever(lane, breakpoints)]
+    return  brp_setter(breakpoints, averages)
+
+
+def padded_means(lane, HMM_decisions):
+    """
+    Computes means of each HMM-detected layer separately
+
+    :param lane:
+    :param HMM_decisions:
+    :return:
+    """
+    return_array = np.empty_like(lane)
+    return_array[HMM_decisions == -1] = np.nanmean(lane[HMM_decisions == -1])
+    return_array[HMM_decisions == 1] = np.nanmean(lane[HMM_decisions == 1])
+    return_array[HMM_decisions == 0] = np.nanmean(lane[HMM_decisions == 0])
+    return return_array
 
 
 def gini_compression(set_of_means):
@@ -233,7 +254,6 @@ def gini_compression(set_of_means):
     plt.plot(csum, 'k')
     plt.plot(np.linspace(0, 1, csum.shape[0]), 'r')
     plt.show()
-
 
 
 def rolling_window(base_array, window_size):

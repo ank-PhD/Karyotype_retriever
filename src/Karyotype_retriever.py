@@ -235,13 +235,8 @@ class Environement(object):
         # actual location of HMM execution
         parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized)) - 1
 
-        # we perform the injection of chr breakpoints here
-        breakpoints = pull_breakpoints(parsed)
-        breakpoints = sorted(list(set(breakpoints + [current_lane.shape[0]])))
-
-        # we then compute per-breakpoints averages
-        averages= [np.nanmean(x) for x in KS.brp_retriever(current_lane, breakpoints)]
-        segment_averages = KS.brp_setter(breakpoints, averages)
+        # segment_averages = KS.old_padded_means(current_lane, parsed)
+        segment_averages = KS.padded_means(current_lane, parsed)
 
         # and we plot the classification debug plot if debug level is 2 or above
         if self.debug_level > 1:
@@ -365,7 +360,7 @@ class Environement(object):
         HMM_level_decisions = []
 
         # this is where the computation of recursion is happening.
-        regression_round(10, 6, 0.05)
+        regression_round(10, 6, 0.01)
 
         # make a final fine-grained parse
         regression_round(3, 3, 0.001)
@@ -378,9 +373,6 @@ class Environement(object):
 
         print np.nanstd(reg_remainders[-1])
         print np.nanpercentile(np.abs(reg_remainders[-1]), 66)
-
-        # TODO: test "all hmm levels are the same"
-        # TODO: test "reduce hmm levels complexity"
 
         raise Exception("in refactoring")
 
