@@ -22,28 +22,20 @@ def remainder_plot(remainders):
     plt.plot(remainders, 'k.')
     lo, ho = KS.Tukey_outliers(remainders, FDR=0.0001)
     outliers = np.empty_like(remainders)
-    outliers.fill(1)
-    outliers[ho] = 0
-    outliers[lo] = 0
-    remainders[outliers.astype(np.bool)] = np.nan
-    plt.plot(remainders, 'r.')
+    outliers.fill(np.nan)
+    outliers[ho] = remainders[ho]
+    outliers[lo] = remainders[lo]
+    plt.plot(outliers, 'r.')
 
 
-def plot_classification(parsed, chr_tag, current_lane, gauss_convolve, rolling_std,
-                        segment_averages, binarized, threshold):
+def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized):
 
     ax1 = plt.subplot(311)
     multilane_plot(chr_tag, [parsed, binarized])
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
     ax2 = plt.subplot(312, sharex=ax1)
-    plt.plot(current_lane, 'k.')
-    plt.plot(gauss_convolve, 'r', lw=2)
-    plt.plot(gauss_convolve + rolling_std, 'g', lw=1)
-    plt.plot(gauss_convolve - rolling_std, 'g', lw=1)
-    plt.plot(segment_averages, 'b', lw=2)
-    plt.axhline(y=threshold, color='c')
-    plt.axhline(y=-threshold, color='c')
+    remainder_plot(current_lane)
     plt.setp(ax2.get_xticklabels(), visible=False)
 
     plt.subplot(313, sharex=ax1)

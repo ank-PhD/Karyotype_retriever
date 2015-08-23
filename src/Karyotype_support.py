@@ -28,41 +28,6 @@ def support_function(x, y):
         return 0
 
 
-
-def binarize(current_lane, FDR=0.5, window_size=10):
-    """
-
-    :param current_lane:
-    :param FDR: currently not eforced
-    :param window_size: currently not enforced
-    :return:
-    """
-
-    def render_for_debug():
-        pass
-
-    gauss_convolve = np.empty(current_lane.shape)
-    gauss_convolve.fill(np.NaN)
-    gauss_convolve[np.logical_not(np.isnan(current_lane))] = gaussian_filter1d(rm_nans(current_lane), 10, order=0, mode='mirror')
-
-    rolling_std = np.empty(current_lane.shape)
-    rolling_std.fill(np.NaN)
-    payload = np.std(rolling_window(rm_nans(current_lane), 10), 1)
-    c1, c2 = (np.sum(np.isnan(current_lane[:5])), np.sum(np.isnan(current_lane[-4:])))
-    rolling_std[5:-4][np.logical_not(np.isnan(current_lane))[5:-4]] = np.lib.pad(payload,
-                                                                                 (c1, c2),
-                                                                                 'constant',
-                                                                                 constant_values=(np.NaN, np.NaN))
-
-    corrfact = np.random.randint(-5, 5) # to prevent the oscillatory lock-ins
-    threshold = np.percentile(rm_nans(rolling_std), 75+corrfact)    # threshold where the HMM will kick in
-    binarized = (current_lane > threshold).astype(np.int16) - (current_lane < -threshold) + 1
-
-    render_for_debug()
-
-    return binarized, gauss_convolve, rolling_std, threshold
-
-
 def brp_retriever(array, breakpoints_set):
     """
     Retrieves values on the segments defined by the breakpoints.
@@ -229,6 +194,29 @@ def Tukey_outliers(set_of_means, FDR=0.005):
     print ho
 
     return lo, ho
+
+
+def binarize(current_lane, FDR=0.05):
+    """
+
+    :param current_lane: array of markers in order
+    :param FDR: false discovery rate
+    :return:
+    """
+
+    def render_for_debug():
+        pass
+
+
+    binarized = np.empty_like(current_lane)
+    binarized.fill(1)
+
+    lo, ho = Tukey_outliers(current_lane, FDR)
+
+    binarized[ho] = 0
+    binarized[lo] = 2 # Inverted because of legacy reasons
+
+    return binarized
 
 
 def gini_compression(set_of_means):

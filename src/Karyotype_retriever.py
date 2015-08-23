@@ -217,7 +217,7 @@ class Environement(object):
         return re_classification_tag
 
 
-    def HMM_regress(self, current_lane, coherence_length = 10):
+    def HMM_regress(self, current_lane, coherence_length = 10, FDR=0.01):
         """
         Performs a regression of current lane by an hmm with a defined coherence length
 
@@ -230,10 +230,10 @@ class Environement(object):
         current_lane = current_lane - np.nanmean(current_lane) # sets the mean to 0
 
         # binariztion, plus variables for debugging.
-        binarized, gauss_convolve, rolling_std, threshold = KS.binarize(current_lane)
+        binarized = KS.binarize(current_lane, FDR=0.01)
 
         # actual location of HMM execution
-        parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized))-1
+        parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized)) - 1
 
         # we perform the injection of chr breakpoints here
         breakpoints = pull_breakpoints(parsed)
@@ -245,8 +245,8 @@ class Environement(object):
 
         # and we plot the classification debug plot if debug level is 2 or above
         if self.debug_level > 1:
-            plot_classification(parsed, self.chromosome_tag[0, :], current_lane, gauss_convolve, rolling_std,
-                                segment_averages, binarized-1, threshold)
+            plot_classification(parsed, self.chromosome_tag[0, :], current_lane,
+                                segment_averages, binarized-1)
 
         # we compute the chromosome amplification decision here. TODO: move for recursive conclusion
         # lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
@@ -347,9 +347,9 @@ class Environement(object):
             return  shortness, filled_in, levels
 
 
-        def regression_round(coherence_lenght, max_rounds):
+        def regression_round(coherence_lenght, max_rounds, FDR):
             for i in range(0, max_rounds):
-                reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght)
+                reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght, FDR)
                 if np.max(HMM_levels) - np.min(HMM_levels) < 1:
                     break
                 else:
@@ -365,10 +365,10 @@ class Environement(object):
         HMM_level_decisions = []
 
         # this is where the computation of recursion is happening.
-        regression_round(10, 6)
+        regression_round(10, 6, 0.05)
 
         # make a final fine-grained parse
-        regression_round(3, 3)
+        regression_round(3, 3, 0.001)
 
         final_regression = np.array(HMM_regressions).sum(0)
 
@@ -514,7 +514,7 @@ class Environement(object):
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environment = Environement(pth, fle, debug_level=1)
+    environment = Environement(pth, fle, debug_level=2)
     # print environment
     # print environment.compute_recursive_karyotype(40, True)
     pprint(environment.compute_all_karyotypes())
