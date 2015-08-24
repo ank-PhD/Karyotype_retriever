@@ -18,28 +18,23 @@ def multilane_plot(main_pad, multi_pad_list):
         plt.imshow(morph_shape(array, j*step_size),interpolation='nearest', cmap='coolwarm', vmin=-1, vmax=1)
 
 
-def remainder_plot(remainders):
+def remainder_plot(remainders, FDR=0.005):
     plt.plot(remainders, 'k.')
-    lo, ho = KS.Tukey_outliers(remainders, FDR=0.0001)
-    outliers = np.empty_like(remainders)
-    outliers.fill(np.nan)
-    outliers[ho] = remainders[ho]
-    outliers[lo] = remainders[lo]
-    plt.plot(outliers, 'r.')
+    plt.plot(KS.get_outliers(remainders, FDR), 'r.')
 
 
-def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized):
+def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized, FDR):
 
     ax1 = plt.subplot(311)
     multilane_plot(chr_tag, [parsed, binarized])
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
     ax2 = plt.subplot(312, sharex=ax1)
-    remainder_plot(current_lane)
+    remainder_plot(current_lane, FDR)
     plt.setp(ax2.get_xticklabels(), visible=False)
 
     plt.subplot(313, sharex=ax1)
-    remainder_plot(current_lane - segment_averages)
+    remainder_plot(current_lane - segment_averages, FDR)
 
     plt.show()
 
@@ -74,13 +69,16 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
 
     plt.show()
 
+
     ax1 = plt.subplot(311)
     plt.plot(starting_dataset, 'k.')
     plt.plot(regression)
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
     ax2 = plt.subplot(312, sharex=ax1)
-    multilane_plot(chr_tag, [HMM_states])
+    final_remainder_outliers = KS.get_outliers(final_remainder, 0.001)
+    final_remainder_outliers[np.isnan(final_remainder_outliers)] = 0
+    multilane_plot(chr_tag, [HMM_states, regression, final_remainder_outliers])
     plt.setp(ax2.get_xticklabels(), visible=False)
     plt.ylim(0, 200)
 
@@ -92,32 +90,47 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     plt.show()
 
 
-def old_multi_level_plot():
-    ax1 = plt.subplot(511)
-    plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-    plt.imshow(background, interpolation='nearest', cmap='coolwarm')
-    plt.setp(ax1.get_xticklabels(), fontsize=6)
+def show_breakpoints(breakpoints, color = 'k'):
+    """
+    plots the breakpoints
 
-    ax2 = plt.subplot(512, sharex=ax1)
-    plt.plot(self.locuses[:, lane]-np.nanmean(self.locuses[:, lane]), 'k.')
-    plt.plot(amplicons, 'r', lw=2)
-    plt.setp(ax2.get_xticklabels(), visible=False)
+    :param breakpoints:
+    :return:
+    """
+    for point in breakpoints:
+        plt.axvline(x=point, color=color)
 
-    ax3 = plt.subplot(513, sharex=ax1, sharey=ax2)
-    plt.plot(corrected_levels, 'r', lw=2)
-    plt.setp(ax3.get_xticklabels(), visible=False)
 
-    ax4 = plt.subplot(514, sharex=ax1, sharey=ax2)
-    plt.plot(amplicons-corrected_levels, 'g', lw=2)
-    plt.setp(ax4.get_xticklabels(), visible=False)
+def inflate_support(length, breakpoints, values=None):
+    """
+    transforms 1D representation of chromosomes into a 2d array that can be rendered with an eventual filter on breakpoints
 
-    ax5 = plt.subplot(515, sharex=ax1)
-    plt.setp(ax5.get_xticklabels(), visible=False)
-    plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-    plt.imshow(inflate_support(self.chromosome_tag.shape[1], self.chr_brps, np.array(collector)),
-               interpolation='nearest', cmap='coolwarm', vmin=-1., vmax=1 )
+    :param length:
+    :param breakpoints:
+    :param values:
+    :return:
+    """
 
-    plt.show()
+    if values is None:
+        values = np.array(range(0, len(breakpoints)))
+    if breakpoints[-1]< length:
+        breakpoints.append(length)
+    ret_array = np.zeros((100, length))
+    for _i in range(1, values.shape[0]):
+        ret_array[:, breakpoints[_i-1]: breakpoints[_i]] = values[_i]
+    return ret_array
+
+
+def inflate_tags(_1D_array, width=100):
+    """
+    reshapes a 1_d array into a 2d array that can be rendered
+
+    :param _1D_array:
+    :param width:
+    :return:
+    """
+    nar = _1D_array.reshape((1, _1D_array.shape[0]))
+    return np.repeat(nar, width, axis=0)
 
 
 def plot(_list):
@@ -125,9 +138,9 @@ def plot(_list):
     plt.show()
 
 
-def plot2(_list):
+def plot2(_list, chr_brps, centromere_brps):
     inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(_list, _list.shape[0])])
     plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
-    show_breakpoints(self.chr_brps, 'k')
-    show_breakpoints(list(set(self.centromere_brps) - set(self.chr_brps)), 'g')
+    show_breakpoints(chr_brps, 'k')
+    show_breakpoints(list(set(centromere_brps) - set(chr_brps)), 'g')
     plt.show()

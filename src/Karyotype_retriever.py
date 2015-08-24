@@ -2,33 +2,22 @@ __author__ = 'ank'
 
 from csv import reader
 from os import path
-import warnings
-from itertools import izip
-import copy
 import numpy as np
-from matplotlib import pyplot as plt
-from scipy.stats import ttest_ind
-import scipy.cluster.hierarchy as sch
-from scipy.ndimage.filters import gaussian_filter1d as smooth_signal
 from pprint import pprint
-import sys
 from chiffatools import hmm
-from chiffatools.Linalg_routines import rm_nans
 from src.pre_processors import get_centromeres
-from src.Karyotype_support import t_test_matrix, rolling_window, pull_breakpoints, generate_breakpoint_mask, inflate_support, \
-    center_and_rebalance_tags, recompute_level, show_breakpoints, position_centromere_breakpoints, inflate_tags, HMM_constructor
+from src.Karyotype_support import pull_breakpoints, center_and_rebalance_tags, position_centromere_breakpoints, HMM_constructor
 import src.Karyotype_support as KS
-from src.Drawing_functions import plot_classification, multi_level_plot
+from src.Drawing_functions import plot_classification, multi_level_plot, plot, plot2
 from  src.basic_drawing import show_2d_array
 
-# TODO: there seems to be a problem with the fact that regions can be really close with HMM for amplification detection
-# TODO: [continuation] (cf #2:)
+# TODO: center and rebalance
+# TODO: last HMM pass to group together the remainder outliers and the HMM tags that are separated by too short
+# TODO: we still have gained/lost problem and overregression when FDR is set to 5%
+# TODO: big problem: Tuckey has a solid cut-off during the binarization. Which means that small oscillations are really
+#       dependnet on small level variations
+# TODO: legacy centering procedure does not seem to work properly for some reason.
 
-# TODO: resolve the weird interference between the min length and breakpoint collapse algorithms
-# TODO: => invert collapse and separation algorithms?
-
-# TODO: tor the T-test, in addition to the actual p_value, use actual size of difference (p_val for a sample of 10?)
-# TODO: force chromosome breakpoints re-set before computing the pyramid of collapses
 
 ##################################################################################
 # suppresses the noise from Numpy about future suppression of the boolean mask use
@@ -98,8 +87,7 @@ class Environement(object):
 
         chr_arr = locuses[:, 0]
         chr_brps = pull_breakpoints(chr_arr)
-        broken_table = []  # broken tables has "true" set onto the array to the span of tag indexes indicating
-                                # where a chromosome is present.
+        broken_table = []  # broken tables has "true" set onto the array to the span of tags where a chromosome is
         chroms = range(int(np.min(chr_arr)), int(np.max(chr_arr))+1)
         for i in chroms:
             broken_table.append(chr_arr == i)                   # TODO: switch to the chr_brps
@@ -125,102 +113,18 @@ class Environement(object):
                 'chroms': chroms,
                 'locuses': locuses,
                 'locus_locations': locus_locations,
-                'segments': segments,
-                    }
+                'segments': segments, }
         return retdict
 
 
     def __str__(self):
         render_string = []
-        for property, value in vars(self).iteritems():
-            render_string.append( str(property)+": "+str(value))
+        for _property, _value in vars(self).iteritems():
+            render_string.append(str(_property)+": "+str(_value))
         return "\n".join(render_string)
 
 
-
-    def t_statistic_sorter(self, current_lane, breakpoints=None):
-        """
-        Collapses the segments of chromosomes whose levels are not statistically significantly different into a single level
-
-        :param current_lane:
-        :param breakpoints:
-        :return:
-        """
-        t_mat = t_test_matrix(KS.brp_retriever(current_lane, breakpoints))
-
-        t_mat[np.isnan(t_mat)] = 0
-        t_mat = t_mat + t_mat.T
-        np.fill_diagonal(t_mat, 1)
-        ct_mat = t_mat.copy()
-        ct_mat[t_mat < 0.01] = 0.01
-        ct_mat = 1 - ct_mat
-
-        # until here: prepares a matrix on which clustering is done
-
-        Y = sch.linkage(ct_mat, method='centroid')
-        clust_alloc = sch.fcluster(Y, 0.95, criterion='distance')
-        # performs a hierarchical clustering
-
-        averages = []
-        # if HMM detected nothing, perform a swap
-        if breakpoints is None:
-            for i in range(0, 24): #separate treatments for chromosomes here
-                averages.append(np.median(rm_nans(current_lane[self.broken_table[i]])))  # TODO: switch to the chr_brps
-        else:
-            subsets = np.split(current_lane, breakpoints[:-1])
-            for subset in subsets:
-                av = np.average(rm_nans(subset))
-                averages.append(av)
-
-        accumulator = [[] for _ in range(0, max(clust_alloc)+1)]
-        for loc, item in enumerate(averages):
-            accumulator[clust_alloc[loc]].append(item)
-
-        # here, we just split the means that are sufficiently close statistically
-        accumulator = np.array([ np.average(np.array(_list)) for _list in accumulator][1:])
-
-        splitting_matrix = np.repeat(accumulator.reshape((1, accumulator.shape[0])),
-                                        accumulator.shape[0], axis = 0)
-        splitting_matrix = np.abs(splitting_matrix - splitting_matrix.T)
-
-        show_2d_array(ct_mat, 'corrected p_values_matrix')
-        show_2d_array(splitting_matrix, 'splitting matrix')
-
-        Y_2 = sch.linkage(splitting_matrix, method='centroid')
-
-        if breakpoints is None:
-            clust_alloc_2 = sch.fcluster(Y_2, 3, criterion='maxclust')
-        else:
-            clust_alloc_2 = sch.fcluster(Y_2, 0.95, criterion='distance')  # attention, there is behavior-critical constant here
-
-
-        accumulator_2 = [[] for _ in range(0, max(clust_alloc_2)+1)]
-        for loc, item in enumerate(accumulator):
-            accumulator_2[clust_alloc_2[loc]].append(item)
-        accumulator_2 = np.array([ np.average(np.array(_list)) for _list in accumulator_2][1:])
-
-        sorter_l = np.argsort(accumulator_2)
-        sorter = dict((pos, i) for i, pos in enumerate(sorter_l))
-
-        if breakpoints is None:
-            re_chromosome_pad = np.repeat(self.chr_arr.reshape((1, self.chr_arr.shape[0])), 100, axis=0)
-        else:
-            pre_array = generate_breakpoint_mask(breakpoints)
-            re_chromosome_pad = np.repeat(pre_array.reshape((1, pre_array.shape[0])), 100, axis=0)
-            re_chromosome_pad += 1
-
-        re_classification_tag = np.zeros(re_chromosome_pad.shape)
-
-        for i in range(0, len(clust_alloc)):
-            re_classification_tag[re_chromosome_pad == i+1] = sorter[clust_alloc_2[clust_alloc[i]-1]-1]
-
-        if breakpoints:
-            re_classification_tag = center_and_rebalance_tags(re_classification_tag)
-
-        return re_classification_tag
-
-
-    def HMM_regress(self, current_lane, coherence_length = 10, FDR=0.01):
+    def hmm_regress(self, current_lane, coherence_length=10, FDR=0.01):
         """
         Performs a regression of current lane by an hmm with a defined coherence length
 
@@ -230,10 +134,10 @@ class Environement(object):
         """
         parsing_hmm = HMM_constructor(coherence_length)
 
-        current_lane = current_lane - np.nanmean(current_lane) # sets the mean to 0
+        current_lane = current_lane - np.nanmean(current_lane)  # sets the mean to 0
 
         # binariztion, plus variables for debugging.
-        binarized = KS.binarize(current_lane, FDR=0.01)
+        binarized = KS.binarize(current_lane, FDR)
 
         # actual location of HMM execution
         parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized)) - 1
@@ -244,7 +148,7 @@ class Environement(object):
         # and we plot the classification debug plot if debug level is 2 or above
         if self.debug_level > 1:
             plot_classification(parsed, self.chromosome_tag[0, :], current_lane,
-                                segment_averages, binarized-1)
+                                segment_averages, binarized-1, FDR)
 
         # we compute the chromosome amplification decision here. TODO: move for recursive conclusion
         # lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
@@ -255,14 +159,15 @@ class Environement(object):
         return current_lane - segment_averages, segment_averages, parsed
 
 
-    def recursive_HMM_regression(self, lane):
+    def recursive_hmm_regression(self, lane):
 
         def regression_round(coherence_lenght, max_rounds, FDR):
             for i in range(0, max_rounds):
-                reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght, FDR)
+                reg_remainder, HMM_reg, HMM_levels = self.hmm_regress(reg_remainders[-1], coherence_lenght, FDR)
                 reg_stats = KS.model_stats(reg_remainders[-1], HMM_reg)
                 print reg_stats
                 if not KS.model_decision(*reg_stats):
+                    print 'break'
                     break
                 else:
                     reg_remainders.append(reg_remainder)
@@ -277,12 +182,13 @@ class Environement(object):
         HMM_level_decisions = []
 
         # this is where the computation of recursion is happening.
-        regression_round(10, 6, 0.01)
+        regression_round(10, 6, 0.05)
 
         # make a final fine-grained parse
-        regression_round(3, 3, 0.001)
+        regression_round(3, 3, 0.01)
 
         final_regression = np.array(HMM_regressions).sum(0)
+        # final_regression = center_and_rebalance_tags(final_regression) # TODO: technically, this time we can use the fact that HMM = 0 means base state
 
         final_HMM = np.array(HMM_level_decisions).sum(0).round()
         final_HMM[final_HMM > 1] = 1
@@ -308,17 +214,6 @@ class Environement(object):
 
     def compute_all_karyotypes(self):
 
-        def plot(_list):
-            plt.imshow(_list, interpolation='nearest', cmap='coolwarm')
-            plt.show()
-
-        def plot2(_list):
-            inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(_list, _list.shape[0])])
-            plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
-            show_breakpoints(self.chr_brps, 'k')
-            show_breakpoints(list(set(self.centromere_brps) - set(self.chr_brps)), 'g')
-            plt.show()
-
         chromosome_list = []
         background_list = []
         arms_list = []
@@ -326,7 +221,7 @@ class Environement(object):
         remainders_list = []
         for i in range(1, environment.locuses.shape[1]):
             print 'analyzing sample #', i
-            col, bckg, col2, rmndrs = self.recursive_HMM_regression(i)
+            col, bckg, col2, rmndrs = self.recursive_hmm_regression(i)
             chromosome_list.append(col)
             background_list.append(bckg)
             arms_list.append(col2)
@@ -338,8 +233,8 @@ class Environement(object):
         remainders_list = np.array(remainders_list).astype(np.float64)
 
         plot(chromosome_list)
-        plot2(background_list)
-        plot2(remainders_list)
+        plot2(background_list, self.chr_brps, self.centromere_brps)
+        plot2(remainders_list, self.chr_brps, self.centromere_brps)
         plot(arms_list)
 
         cell_line_dict = {}
@@ -359,12 +254,12 @@ class Environement(object):
                 chr_q_dict['arm_level'] = arms[chromosome*2 + 1]
                 if p_arm[1] - p_arm[0] > 0 and p_brps.size:
                     p_characteristics = [[0] + self.locus_locations[p_brps].T[1].tolist(),
-                    [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
+                        [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
                 else:
                     p_characteristics = [[], []]
                 if q_arm[1] - q_arm[0] > 0 and q_brps.size:
                     q_characteristics = [[self.locus_locations[q_arm[0]][1]] + self.locus_locations[q_brps].T[1].tolist(),
-                    [background[q_arm[0] + 1].tolist()] + background[q_brps + 1].tolist()]
+                        [background[q_arm[0] + 1].tolist()] + background[q_brps + 1].tolist()]
                 else:
                     q_characteristics = [[], []]
                 chr_p_dict['segmental_aneuploidy'] = p_characteristics
@@ -380,5 +275,5 @@ if __name__ == "__main__":
     fle = 'mmc2-karyotypes.csv'
     environment = Environement(pth, fle, debug_level=2)
     # print environment
-    # print environment.compute_recursive_karyotype(40, True)
-    pprint(environment.compute_all_karyotypes())
+    print environment.recursive_hmm_regression(5)
+    # pprint(environment.compute_all_karyotypes())

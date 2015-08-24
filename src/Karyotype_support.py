@@ -163,7 +163,7 @@ def collapse_means(set_of_means, set_of_stds):
     pass
 
 
-def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=False):
+def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=True):
     """
     Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
 
@@ -175,21 +175,50 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     q1_q3 = norm.interval(supporting_interval)
     FDR_q1_q3 = norm.interval(1 - FDR)
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
+
     l_means = len(set_of_means)
+
+    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
+    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
+
+    print 'q1_q2_theoretical', q1_q3
+    print 'FDR q1_q2', FDR_q1_q3
+    print 'interquintile', q1_q3[1] - q1_q3[0]
+    print 'expected diff', FDR_q1_q3[1] - q1_q3[1]
+    print 'sum:', q1_q3[1] + multiplier*(q1_q3[1] - q1_q3[0])
+    print 'multiplier', multiplier
+    print 'quartiles: ', q1, q3
+
+    high_fence = q1 + multiplier*(q3 - q1)
+    low_fence = q3 - multiplier*(q3 - q1)
 
     if verbose:
         print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
                                                                                   poisson.interval(0.95, FDR*l_means))
 
-    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
-    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
-    high_fence = q1 + multiplier*(q3 - q1)
-    low_fence = q3 - multiplier*(q3 - q1)
+        print "high fence: %s, low fence: %s" % (high_fence, low_fence)
 
     ho = (set_of_means < low_fence).nonzero()[0]
     lo = (set_of_means > high_fence).nonzero()[0]
 
     return lo, ho
+
+
+def get_outliers(lane, FDR):
+    """
+    Gets the outliers in a lane with a given FDR and sets all non-outliers in the lane to NaNs
+
+    :param lane:
+    :param FDR:
+    :return:
+    """
+    lo, ho = Tukey_outliers(lane, FDR)
+    outliers = np.empty_like(lane)
+    outliers.fill(np.nan)
+    outliers[ho] = lane[ho]
+    outliers[lo] = lane[lo]
+
+    return outliers
 
 
 def binarize(current_lane, FDR=0.05):
@@ -336,17 +365,6 @@ def pull_breakpoints(contingency_list):
     return breakpoints
 
 
-def show_breakpoints(breakpoints, color = 'k'):
-    """
-    plots the breakpoints
-
-    :param breakpoints:
-    :return:
-    """
-    for point in breakpoints:
-        plt.axvline(x=point, color=color)
-
-
 def generate_breakpoint_mask(breakpoints):
     """
     generates mask assigning a different integer to each breakpoint
@@ -360,38 +378,6 @@ def generate_breakpoint_mask(breakpoints):
         support[pre_brp:brp] = i
         pre_brp = brp
     return support
-
-
-def inflate_support(length, breakpoints, values=None):
-    """
-    transforms 1D representation of chromosomes into a 2d array that can be rendered with an eventual filter on breakpoints
-
-    :param length:
-    :param breakpoints:
-    :param values:
-    :return:
-    """
-
-    if values is None:
-        values = np.array(range(0, len(breakpoints)))
-    if breakpoints[-1]< length:
-        breakpoints.append(length)
-    ret_array = np.zeros((100, length))
-    for _i in range(1, values.shape[0]):
-        ret_array[:, breakpoints[_i-1]: breakpoints[_i]] = values[_i]
-    return ret_array
-
-
-def inflate_tags(_1D_array, width=100):
-    """
-    reshapes a 1_d array into a 2d array that can be rendered
-
-    :param _1D_array:
-    :param width:
-    :return:
-    """
-    nar = _1D_array.reshape((1, _1D_array.shape[0]))
-    return np.repeat(nar, width, axis=0)
 
 
 def center_and_rebalance_tags(source_array):
