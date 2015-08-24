@@ -248,6 +248,7 @@ class Environement(object):
         # hr = [np.percentile(x, 75) for x in KS.brp_retriever(parsed, self.chr_brps)]
         # chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
 
+        # print KS.model_stats(current_lane, segment_averages)
         return current_lane - segment_averages, segment_averages, parsed
 
 
@@ -345,7 +346,9 @@ class Environement(object):
         def regression_round(coherence_lenght, max_rounds, FDR):
             for i in range(0, max_rounds):
                 reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght, FDR)
-                if np.max(HMM_levels) - np.min(HMM_levels) < 1:
+                reg_stats = KS.model_stats(reg_remainders[-1], HMM_reg)
+                print reg_stats
+                if not KS.model_decision(*reg_stats):
                     break
                 else:
                     reg_remainders.append(reg_remainder)

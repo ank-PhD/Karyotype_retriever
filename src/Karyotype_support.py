@@ -76,7 +76,7 @@ def HMM_constructor(coherence_length):
     el2 = 0.1
     el1 = el2/np.power(10, coherence_length/2.0)
 
-    print 'el1: %s, el2: %s'% (el1, el2)
+    # print 'el1: %s, el2: %s'% (el1, el2)
 
     transition_probs = np.ones((3, 3)) * el1
     np.fill_diagonal(transition_probs, 1 - 2*el1)
@@ -163,7 +163,7 @@ def collapse_means(set_of_means, set_of_stds):
     pass
 
 
-def Tukey_outliers(set_of_means, FDR=0.005, contracted_interval=0.5, verbose=False):
+def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=False):
     """
     Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
 
@@ -172,7 +172,7 @@ def Tukey_outliers(set_of_means, FDR=0.005, contracted_interval=0.5, verbose=Fal
     :return:
     """
     # false discovery rate v.s. expected falses v.s. power
-    q1_q3 = norm.interval(contracted_interval)
+    q1_q3 = norm.interval(supporting_interval)
     FDR_q1_q3 = norm.interval(1 - FDR)
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
@@ -181,8 +181,8 @@ def Tukey_outliers(set_of_means, FDR=0.005, contracted_interval=0.5, verbose=Fal
         print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
                                                                                   poisson.interval(0.95, FDR*l_means))
 
-    q1 = np.percentile(set_of_means, 50*(1-contracted_interval))
-    q3 = np.percentile(set_of_means, 50*(1+contracted_interval))
+    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
+    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
     high_fence = q1 + multiplier*(q3 - q1)
     low_fence = q3 - multiplier*(q3 - q1)
 
@@ -239,6 +239,58 @@ def padded_means(lane, HMM_decisions):
     return_array[HMM_decisions == 0] = np.nanmean(lane[HMM_decisions == 0])
     return return_array
 
+
+def gini_coeff(x):
+    """
+    requires all values in x to be zero or positive numbers,
+    otherwise results are undefined
+    source : http://www.ellipsix.net/blog/2012/11/the-gini-coefficient-for-distribution-inequality.html
+    """
+    x = np.abs(x)
+    x = rm_nans(x.astype(np.float))
+    n = len(x)
+    s = x.sum()
+    r =  np.argsort(np.argsort(-x)) # calculates zero-based ranks
+    return 1 - (2.0 * (r*x).sum() + s)/(n*s)
+
+
+def model_stats(regressed, regressor):
+    r2_0 = np.nansum(np.power(regressed, 2))
+    r2 = np.nansum(np.power(regressed-regressor, 2))
+
+    to1 = np.empty_like(regressed)
+    to1.fill(np.nan)
+    to2 = np.empty_like(regressed)
+    to2.fill(np.nan)
+
+    FDR = 0.01
+    tor = Tukey_outliers(regressed, FDR)
+    tor2 = Tukey_outliers(regressed - regressor, FDR)
+    tor2 = (np.array(list(set(tor2[0].tolist()).intersection(set(tor[0].tolist())))),
+           np.array(list(set(tor2[1].tolist()).intersection(set(tor[1].tolist())))))
+
+    to1[tor[0]] = regressed
+    to1[tor[1]] = regressed
+    to2[tor2[0]] = regressed - regressor
+    to2[tor2[1]] = regressed - regressor
+
+    complexity = (len(pull_breakpoints(regressor)))/2
+
+    to1 = np.nansum(np.power(to1, 2))
+    to2 = np.nansum(np.power(to2, 2))
+
+    improvement_1 = (1-r2/r2_0)*100
+    improvement_2 = (1-to2/to1)*100
+
+    l1 = (tor[0].shape[0] + tor[1].shape[0])/FDR/regressed.shape[0] # since poisson sf fails for such big deviations
+    l2 = (tor2[0].shape[0] + tor2[1].shape[0])/FDR/regressed.shape[0]
+
+    return improvement_1, improvement_2, complexity, l1-l2, complexity-l1+l2
+
+
+def model_decision(std_reduction, std_of_outliers, segments_No, times_No_outliers_reduced, surrogate_AIC):
+
+    return (std_of_outliers > 10 or std_reduction > 10 or surrogate_AIC < 0) and times_No_outliers_reduced > 1
 
 def gini_compression(set_of_means):
     set_of_means = rm_nans(set_of_means.astype(np.float))
