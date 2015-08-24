@@ -45,7 +45,8 @@ def plot_classification(parsed, chr_tag, current_lane, segment_averages, binariz
 
 
 def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
-                     list_of_regressions, HMM_decisions, remainder_list):
+                     list_of_regressions, HMM_decisions, remainder_list,
+                     HMM_states, chromosome_state, arms_state):
 
     ax1 = plt.subplot(511)
     remainder_plot(final_remainder)
@@ -69,6 +70,23 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     ax5 = plt.subplot(515, sharex=ax1)
     multilane_plot(chr_tag, remainder_list)
     plt.setp(ax5.get_xticklabels(), visible=False)
+    plt.ylim(0, 200)
+
+    plt.show()
+
+    ax1 = plt.subplot(311)
+    plt.plot(starting_dataset, 'k.')
+    plt.plot(regression)
+    plt.setp(ax1.get_xticklabels(), fontsize=6)
+
+    ax2 = plt.subplot(312, sharex=ax1)
+    multilane_plot(chr_tag, [HMM_states])
+    plt.setp(ax2.get_xticklabels(), visible=False)
+    plt.ylim(0, 200)
+
+    ax3 = plt.subplot(313, sharex=ax1)
+    multilane_plot(chr_tag, [chromosome_state, arms_state])
+    plt.setp(ax3.get_xticklabels(), visible=False)
     plt.ylim(0, 200)
 
     plt.show()

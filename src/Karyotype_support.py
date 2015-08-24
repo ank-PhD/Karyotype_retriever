@@ -51,8 +51,8 @@ def brp_setter(breakpoints_set, prebreakpoint_values):
     :param prebreakpoint_values:
     :return:
     """
-    assert(len(breakpoints_set)==len(prebreakpoint_values))
     breakpoints_set = sorted(list(set(breakpoints_set))) # sorts the breakpoints
+    assert(len(breakpoints_set) == len(prebreakpoint_values))
     support = np.empty((breakpoints_set[-1], )) # creates array to be filled
     support.fill(np.nan)
 

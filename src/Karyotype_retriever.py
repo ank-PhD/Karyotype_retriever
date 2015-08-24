@@ -21,6 +21,9 @@ import src.Karyotype_support as KS
 from src.Drawing_functions import plot_classification, multi_level_plot
 from  src.basic_drawing import show_2d_array
 
+# TODO: there seems to be a problem with the fact that regions can be really close with HMM for amplification detection
+# TODO: [continuation] (cf #2:)
+
 # TODO: resolve the weird interference between the min length and breakpoint collapse algorithms
 # TODO: => invert collapse and separation algorithms?
 
@@ -254,95 +257,6 @@ class Environement(object):
 
     def recursive_HMM_regression(self, lane):
 
-
-        def determine_locality():
-            breakpoint_accumulator = []
-            ###########################################################
-            # repeated code. TODO: in the future, factor it out
-            prv_brp = 0
-            for breakpoint in breakpoints:
-                breakpoint_accumulator.append(breakpoint - prv_brp)
-                prv_brp = breakpoint
-            breakpoint_accumulator = np.array(breakpoint_accumulator)
-            ############################################################
-            msk = breakpoint_accumulator < self.min_seg_support
-            shortness = inflate_support(current_lane.shape[0], breakpoints, msk)
-
-            shortness_breakpoints = pull_breakpoints(shortness[0, :])
-
-            chr_brp_arr = np.array(sorted(self.chr_brps + self.centromere_brps))
-            re_brp = []
-            supression_set = []
-            prv_brp = 0
-
-            # adds chromosome end breakpoints into breakpoint list
-            for breakpoint in shortness_breakpoints:
-                chr_break_verify = np.logical_and(chr_brp_arr > prv_brp, chr_brp_arr < breakpoint)
-                if any(chr_break_verify) and all(shortness[0, :][prv_brp:breakpoint]):
-                    re_brp += chr_brp_arr[chr_break_verify].tolist()
-                    if re_brp[0] - prv_brp < self.collapse_segs:
-                        supression_set.append(prv_brp)
-                    if breakpoint - re_brp[-1] < self.collapse_segs:
-                        supression_set.append(breakpoint)
-                prv_brp = breakpoint
-            shortness_breakpoints = sorted(shortness_breakpoints + re_brp)
-            print 'supset', supression_set
-            shortness_breakpoints = sorted(list(set(shortness_breakpoints) - set(supression_set)))
-
-            shortness_breakpoints.append(shortness.shape[1])
-            shortness_breakpoints = sorted(list(set(shortness_breakpoints)))
-            # =>
-
-            shortness_ladder = inflate_support(current_lane.shape[0], shortness_breakpoints)[0, :]
-
-            filled_in = re_class_tag.copy().astype(np.float)
-            levels = HMM_regression.copy()
-            prv_brp = 0
-            non_short_selector = np.logical_not(shortness[0, :].astype(np.bool))
-
-            # ????
-            for _i, breakpoint in enumerate(shortness_breakpoints):
-                if all(shortness[0, :][prv_brp:breakpoint]):
-                    current_fltr = shortness_ladder == _i
-                    diff_min_max = np.max(parsed[current_fltr]) - np.min(parsed[current_fltr])
-                    if diff_min_max == 0 and prv_brp - 1 > 0 and breakpoint + 1 < shortness_breakpoints[-1]:
-                        non_modified = True
-                        if parsed[prv_brp-1] == parsed[breakpoint+1]:
-                            filled_in[:, current_fltr] = parsed[prv_brp - 1]
-                            levels[current_fltr] = HMM_regression[prv_brp - 1]
-                            non_modified = False
-                        if prv_brp in self.chr_brps and breakpoint not in self.chr_brps: #TODO: add range+collapse
-                            filled_in[:, current_fltr] = parsed[breakpoint + 1]
-                            levels[current_fltr] = HMM_regression[breakpoint + 1]
-                            non_modified = False
-                        if breakpoint in self.chr_brps and prv_brp not in self.chr_brps: #TODO: add range+collapse
-                            filled_in[:, current_fltr] = parsed[prv_brp - 1]
-                            levels[current_fltr] = HMM_regression[prv_brp - 1]
-                            non_modified = False
-                        if non_modified:
-                            cur_chr = self.chr_arr[breakpoint]
-                            chr_median = np.median(HMM_regression[np.logical_and(cur_chr, non_short_selector)])
-                            lar = np.array([prv_brp-1, breakpoint+1])
-                            lval = HMM_regression[lar]
-                            vl = np.argmin(lval-chr_median)
-                            filled_in[:, current_fltr] = parsed[lar[vl]]
-                            levels[current_fltr] = HMM_regression[lar[vl]]
-                    else :
-                        average = np.average(HMM_regression[current_fltr])
-                        closest_index = np.argmin(np.abs(HMM_regression[non_short_selector] - average))
-                        closest_index = np.array(range(0, shortness_breakpoints[-1]))[non_short_selector][closest_index]
-                        color = parsed[closest_index]
-                        filled_in[:, current_fltr] = color
-                        levels[current_fltr] = HMM_regression[closest_index]
-                prv_brp = breakpoint
-            # =>
-
-            filled_in = center_and_rebalance_tags(filled_in)
-            levels = recompute_level(filled_in[0, :], levels)
-
-            return  shortness, filled_in, levels
-
-
         def regression_round(coherence_lenght, max_rounds, FDR):
             for i in range(0, max_rounds):
                 reg_remainder, HMM_reg, HMM_levels = self.HMM_regress(reg_remainders[-1], coherence_lenght, FDR)
@@ -370,71 +284,26 @@ class Environement(object):
 
         final_regression = np.array(HMM_regressions).sum(0)
 
+        final_HMM = np.array(HMM_level_decisions).sum(0).round()
+        final_HMM[final_HMM > 1] = 1
+        final_HMM[final_HMM < -1] = -1
+
+        lw = [np.percentile(x, 25) for x in KS.brp_retriever(final_HMM, self.chr_brps)]
+        hr = [np.percentile(x, 75) for x in KS.brp_retriever(final_HMM, self.chr_brps)]
+        chromosome_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
+        chr_state_pad = KS.brp_setter(self.chr_brps + [current_lane.shape[0]], chromosome_state)
+
+        lw = [np.percentile(x, 25) for x in KS.brp_retriever(final_HMM, self.chr_brps + self.centromere_brps)]
+        hr = [np.percentile(x, 75) for x in KS.brp_retriever(final_HMM, self.chr_brps + self.centromere_brps)]
+        arms_state = [KS.support_function(lw_el, hr_el) for lw_el, hr_el in zip(lw, hr)]
+        arms_state_pad = KS.brp_setter(self.chr_brps + self.centromere_brps + [current_lane.shape[0]], arms_state)
+
         if self.debug_level > 0:
             multi_level_plot(self.chromosome_tag[0, :], current_lane, final_regression, reg_remainders[-1],
-                             HMM_regressions, HMM_level_decisions, reg_remainders)
+                             HMM_regressions, HMM_level_decisions, reg_remainders,
+                             final_HMM, chr_state_pad, arms_state_pad)
 
-        print np.nanstd(reg_remainders[-1])
-        print np.nanpercentile(np.abs(reg_remainders[-1]), 66)
-
-        raise Exception("in refactoring")
-
-        breakpoints = pull_breakpoints(HMM_level_decision)
-        # the next couple of lines stabilizes the nan-level removal
-        brp_def_segs = np.split(np.array(current_lane), np.array(breakpoints))
-        selection_mask = np.logical_not(np.array([np.isnan(np.nanmean(arr)) for arr in brp_def_segs]))
-        breakpoints = np.array(breakpoints)[selection_mask[:-1]].tolist()
-
-        breakpoints.append(current_lane.shape[0])
-
-        re_class_tag = self.t_statistic_sorter(current_lane, breakpoints)
-        parsed = re_class_tag[0, :]
-        local, background, corrected_levels = determine_locality()
-
-        parsed = background[0, :]
-        collector = []
-        for i in self.chroms:
-            lw = np.percentile(parsed[self.broken_table[i-1, :]], 25)  # TODO: switch to the chr_brps
-            hr = np.percentile(parsed[self.broken_table[i-1, :]], 75)  # TODO: switch to the chr_brps
-            collector.append(KS.support_function(lw, hr))
-
-        collector2 = []
-        for segment in self.segments:
-            if segment[1]-segment[0] > 0:
-                lw = np.percentile(parsed[segment[0]:segment[1]], 25)
-                hr = np.percentile(parsed[segment[0]:segment[1]], 75)
-                collector2.append(KS.support_function(lw, hr))
-            else:
-                collector2.append(np.nan)
-
-        if plotting:
-            ax1 = plt.subplot(511)
-            plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-            plt.imshow(background, interpolation='nearest', cmap='coolwarm')
-            plt.setp(ax1.get_xticklabels(), fontsize=6)
-
-            ax2 = plt.subplot(512, sharex=ax1)
-            plt.plot(self.locuses[:, lane]-np.average(rm_nans(self.locuses[:, lane])), 'k.')
-            plt.plot(HMM_regression, 'r', lw=2)
-            plt.setp(ax2.get_xticklabels(), visible=False)
-
-            ax3 = plt.subplot(513, sharex=ax1, sharey=ax2)
-            plt.plot(corrected_levels, 'r', lw=2)
-            plt.setp(ax3.get_xticklabels(), visible=False)
-
-            ax4 = plt.subplot(514, sharex=ax1, sharey=ax2)
-            plt.plot(HMM_regression-corrected_levels, 'g', lw=2)
-            plt.setp(ax4.get_xticklabels(), visible=False)
-
-            ax5 = plt.subplot(515, sharex=ax1)
-            plt.setp(ax5.get_xticklabels(), visible=False)
-            plt.imshow(self.chromosome_tag, interpolation='nearest', cmap='spectral')
-            plt.imshow(inflate_support(self.chromosome_tag.shape[1], self.chr_brps, np.array(collector)),
-                       interpolation='nearest', cmap='coolwarm', vmin=-1., vmax=1 )
-
-            plt.show()
-
-        return collector, background[0, :], collector2, HMM_regression-background[0, :]
+        return chromosome_state, final_regression, arms_state, reg_remainders[-1]
 
 
     def compute_all_karyotypes(self):
