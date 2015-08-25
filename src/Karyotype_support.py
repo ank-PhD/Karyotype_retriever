@@ -163,7 +163,7 @@ def collapse_means(set_of_means, set_of_stds):
     pass
 
 
-def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=False):
+def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.05, verbose=False):
     """
     Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
 
@@ -177,14 +177,21 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
+    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
+    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
+    high_fence = q3 + multiplier*(q3 - q1)
+    low_fence = q1 - multiplier*(q3 - q1)
+
+    if verbose:
+        print 'FDR:', FDR
+        print 'q1_q3', q1_q3
+        print 'FDRq1_q3', FDR_q1_q3
+        print 'q1, q3', q1, q3
+        print 'fences', high_fence, low_fence
+
     if verbose:
         print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
                                                                                   poisson.interval(0.95, FDR*l_means))
-
-    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
-    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
-    high_fence = q1 + multiplier*(q3 - q1)
-    low_fence = q3 - multiplier*(q3 - q1)
 
     ho = (set_of_means < low_fence).nonzero()[0]
     lo = (set_of_means > high_fence).nonzero()[0]
@@ -255,6 +262,11 @@ def gini_coeff(x):
 
 
 def model_stats(regressed, regressor):
+
+    def safe_set(settee, mask, setted):
+        if len(mask) > 0:
+            settee[mask] = setted
+
     r2_0 = np.nansum(np.power(regressed, 2))
     r2 = np.nansum(np.power(regressed-regressor, 2))
 
@@ -269,10 +281,15 @@ def model_stats(regressed, regressor):
     tor2 = (np.array(list(set(tor2[0].tolist()).intersection(set(tor[0].tolist())))),
            np.array(list(set(tor2[1].tolist()).intersection(set(tor[1].tolist())))))
 
-    to1[tor[0]] = regressed
-    to1[tor[1]] = regressed
-    to2[tor2[0]] = regressed - regressor
-    to2[tor2[1]] = regressed - regressor
+    # we need to add accounting for empty negative/positive NaN
+    safe_set(to1, tor[0], regressed)
+    safe_set(to1, tor[1], regressed)
+    safe_set(to2, tor2[0], regressed-regressor)
+    safe_set(to2, tor2[1], regressed-regressor)
+    # to1[tuple(tor[0])] = regressed
+    # to1[tuple(tor[1])] = regressed
+    # to2[tuple(tor2[0])] = regressed - regressor
+    # to2[tuple(tor2[1])] = regressed - regressor
 
     complexity = (len(pull_breakpoints(regressor)))/2
 
@@ -292,21 +309,6 @@ def model_decision(std_reduction, std_of_outliers, segments_No, times_No_outlier
 
     return (std_of_outliers > 10 or std_reduction > 10 or surrogate_AIC < 0) and times_No_outliers_reduced > 1
 
-def gini_compression(set_of_means):
-    set_of_means = rm_nans(set_of_means.astype(np.float))
-    sorting_index = np.argsort(set_of_means)
-    sorted_set = set_of_means[sorting_index]
-    sorted_set -= np.min(sorted_set)
-    total = sorted_set.sum()
-    normalized_set = sorted_set/total
-    csum = np.cumsum(normalized_set)
-    gini = (np.linspace(0, 1, csum.shape[0])-csum).sum()/float(csum.shape[0])
-
-    plt.title(gini)
-    plt.plot(csum, 'k')
-    plt.plot(np.linspace(0, 1, csum.shape[0]), 'r')
-    plt.show()
-
 
 def rolling_window(base_array, window_size):
     """
@@ -319,6 +321,11 @@ def rolling_window(base_array, window_size):
     shape = base_array.shape[:-1] + (base_array.shape[-1] - window_size + 1, window_size)
     strides = base_array.strides + (base_array.strides[-1],)
     return np.lib.stride_tricks.as_strided(base_array, shape=shape, strides=strides)
+
+
+def rolling_mean(base_array, window_size):
+    rar = rolling_window(base_array, window_size)
+    return rar.mean(1)
 
 
 def pull_breakpoints(contingency_list):
@@ -459,5 +466,4 @@ if __name__ == "__main__":
     # print HMM_constructor(3)
     # print means_collapse(np.linspace(0,1,10), 0.1)
     # gini_compression(np.linspace(0,1,10))
-    gini_compression(np.random.normal(size=100))
-    gini_compression(np.random.poisson(5, 100))
+    pass

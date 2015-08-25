@@ -18,9 +18,9 @@ def multilane_plot(main_pad, multi_pad_list):
         plt.imshow(morph_shape(array, j*step_size),interpolation='nearest', cmap='coolwarm', vmin=-1, vmax=1)
 
 
-def remainder_plot(remainders):
+def remainder_plot(remainders, FDR):
     plt.plot(remainders, 'k.')
-    lo, ho = KS.Tukey_outliers(remainders, FDR=0.0001)
+    lo, ho = KS.Tukey_outliers(remainders, FDR)
     outliers = np.empty_like(remainders)
     outliers.fill(np.nan)
     outliers[ho] = remainders[ho]
@@ -28,28 +28,32 @@ def remainder_plot(remainders):
     plt.plot(outliers, 'r.')
 
 
-def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized):
+def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized, FDR):
 
-    ax1 = plt.subplot(311)
+    ax1 = plt.subplot(411)
     multilane_plot(chr_tag, [parsed, binarized])
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
-    ax2 = plt.subplot(312, sharex=ax1)
-    remainder_plot(current_lane)
+    ax2 = plt.subplot(412, sharex=ax1)
+    remainder_plot(current_lane, FDR)
     plt.setp(ax2.get_xticklabels(), visible=False)
 
-    plt.subplot(313, sharex=ax1)
-    remainder_plot(current_lane - segment_averages)
+    plt.subplot(413, sharex=ax1)
+    remainder_plot(current_lane - segment_averages, FDR)
+
+    plt.subplot(414, sharex=ax1)
+    KS.rolling_mean(current_lane, 10)
+    remainder_plot(current_lane[5:-4]-KS.rolling_mean(current_lane, 10), 0.05)
 
     plt.show()
 
 
 def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
                      list_of_regressions, HMM_decisions, remainder_list,
-                     HMM_states, chromosome_state, arms_state):
+                     HMM_states, chromosome_state, arms_state,):
 
     ax1 = plt.subplot(511)
-    remainder_plot(final_remainder)
+    remainder_plot(final_remainder, FDR=0.01)
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
     ax2 = plt.subplot(512, sharex=ax1)
@@ -73,23 +77,23 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     plt.ylim(0, 200)
 
     plt.show()
-
-    ax1 = plt.subplot(311)
-    plt.plot(starting_dataset, 'k.')
-    plt.plot(regression)
-    plt.setp(ax1.get_xticklabels(), fontsize=6)
-
-    ax2 = plt.subplot(312, sharex=ax1)
-    multilane_plot(chr_tag, [HMM_states])
-    plt.setp(ax2.get_xticklabels(), visible=False)
-    plt.ylim(0, 200)
-
-    ax3 = plt.subplot(313, sharex=ax1)
-    multilane_plot(chr_tag, [chromosome_state, arms_state])
-    plt.setp(ax3.get_xticklabels(), visible=False)
-    plt.ylim(0, 200)
-
-    plt.show()
+    #
+    # ax1 = plt.subplot(311)
+    # plt.plot(starting_dataset, 'k.')
+    # plt.plot(regression)
+    # plt.setp(ax1.get_xticklabels(), fontsize=6)
+    #
+    # ax2 = plt.subplot(312, sharex=ax1)
+    # multilane_plot(chr_tag, [HMM_states])
+    # plt.setp(ax2.get_xticklabels(), visible=False)
+    # plt.ylim(0, 200)
+    #
+    # ax3 = plt.subplot(313, sharex=ax1)
+    # multilane_plot(chr_tag, [chromosome_state, arms_state])
+    # plt.setp(ax3.get_xticklabels(), visible=False)
+    # plt.ylim(0, 200)
+    #
+    # plt.show()
 
 
 def old_multi_level_plot():

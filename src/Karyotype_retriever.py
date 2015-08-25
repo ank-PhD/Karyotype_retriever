@@ -233,7 +233,7 @@ class Environement(object):
         current_lane = current_lane - np.nanmean(current_lane) # sets the mean to 0
 
         # binariztion, plus variables for debugging.
-        binarized = KS.binarize(current_lane, FDR=0.01)
+        binarized = KS.binarize(current_lane, FDR)
 
         # actual location of HMM execution
         parsed = np.array(hmm.viterbi(parsing_hmm, initial_dist, binarized)) - 1
@@ -244,7 +244,7 @@ class Environement(object):
         # and we plot the classification debug plot if debug level is 2 or above
         if self.debug_level > 1:
             plot_classification(parsed, self.chromosome_tag[0, :], current_lane,
-                                segment_averages, binarized-1)
+                                segment_averages, binarized-1, FDR)
 
         # we compute the chromosome amplification decision here. TODO: move for recursive conclusion
         # lw = [np.percentile(x, 25) for x in KS.brp_retriever(parsed, self.chr_brps)]
@@ -277,16 +277,23 @@ class Environement(object):
         HMM_level_decisions = []
 
         # this is where the computation of recursion is happening.
-        regression_round(10, 6, 0.01)
+        regression_round(10, 6, 0.5)
 
         # make a final fine-grained parse
-        regression_round(3, 3, 0.001)
+        regression_round(3, 3, 0.05)
+
+        if HMM_level_decisions == []:
+            HMM_regressions = [np.zeros_like(current_lane)]
+            HMM_level_decisions = [np.zeros_like(current_lane)]
 
         final_regression = np.array(HMM_regressions).sum(0)
 
         final_HMM = np.array(HMM_level_decisions).sum(0).round()
+        print final_HMM
+        print final_HMM > 1
         final_HMM[final_HMM > 1] = 1
         final_HMM[final_HMM < -1] = -1
+        # TODO: correct computation of the HMM decision: current one is pretty much a fail
 
         lw = [np.percentile(x, 25) for x in KS.brp_retriever(final_HMM, self.chr_brps)]
         hr = [np.percentile(x, 75) for x in KS.brp_retriever(final_HMM, self.chr_brps)]
@@ -380,5 +387,40 @@ if __name__ == "__main__":
     fle = 'mmc2-karyotypes.csv'
     environment = Environement(pth, fle, debug_level=2)
     # print environment
-    # print environment.compute_recursive_karyotype(40, True)
-    pprint(environment.compute_all_karyotypes())
+    print environment.recursive_HMM_regression(13)
+    # TODO: attempt sliding window distribution?
+    #       the idea is now pretty much to find a proper binarization technique
+
+    # One of the investigated ways is to perform rolling means normalization
+    # exclude all the outliers
+    # perform the calculation of the rolling mean and dispersion
+    # for rolls of contigs, peroform
+
+    # Tuckey procedure works averagely because some chromosomes have really
+    # low basis dispersion level, whereas the other have a higher, whereas
+    # Tuckey assimilates them all into one.
+
+    # Also a big problem is the solidity of threshold, creating discontinuities
+    # just on the verge of threshold and separating statistically indistinguishable levels
+
+    # => we could correct it by adding an instable intermediate level (can only last 2-3 datapoints)
+    # to account for the ramp due to chromosome points breakage.
+
+    # or entirely different: we can create a duplex HMM of "level change" and "is an outlier"
+    # We use the quitilized probability that can get classified either as an outlier or as a
+    # probability we are at a specific level. When a level chage occurs, we back-propagate to most likely
+    # supporting switch.
+    # we actually have now 2 2-level HMM that get updated due to pretty specific rules
+    # if we use the estimate of mean of the current level (survival function with already known mean and
+    # STD, we can get Proba of transition to a new model pretty easily)
+
+    # in the end, we have a 2-state HMM with a more complex update rule, that gets reset to 0 every time
+    # change is probably detected
+
+    # The problem is that afterwards we loose the ability to detect the assumption that
+
+    # we can though add an outlier HMM state, which is quite likely to be jumped into, but is unstable
+
+
+    # to investigate: 5, 9, 10, 11, 12 => we need to perform a sliding normalization
+    # pprint(environment.compute_all_karyotypes())
