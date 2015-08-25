@@ -25,26 +25,30 @@ def remainder_plot(remainders, FDR=0.005):
 
 def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized, FDR):
 
-    ax1 = plt.subplot(311)
+    ax1 = plt.subplot(411)
     multilane_plot(chr_tag, [parsed, binarized])
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
-    ax2 = plt.subplot(312, sharex=ax1)
+    ax2 = plt.subplot(412, sharex=ax1)
     remainder_plot(current_lane, FDR)
     plt.setp(ax2.get_xticklabels(), visible=False)
 
-    plt.subplot(313, sharex=ax1)
+    plt.subplot(413, sharex=ax1)
     remainder_plot(current_lane - segment_averages, FDR)
+
+    plt.subplot(414, sharex=ax1)
+    KS.rolling_mean(current_lane, 10)
+    remainder_plot(current_lane[5:-4]-KS.rolling_mean(current_lane, 10), 0.05)
 
     plt.show()
 
 
 def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
                      list_of_regressions, HMM_decisions, remainder_list,
-                     HMM_states, chromosome_state, arms_state):
+                     HMM_states, chromosome_state, arms_state,):
 
     ax1 = plt.subplot(511)
-    remainder_plot(final_remainder)
+    remainder_plot(final_remainder, FDR=0.01)
     plt.setp(ax1.get_xticklabels(), fontsize=6)
 
     ax2 = plt.subplot(512, sharex=ax1)
@@ -68,26 +72,23 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     plt.ylim(0, 200)
 
     plt.show()
-
-
-    ax1 = plt.subplot(311)
-    plt.plot(starting_dataset, 'k.')
-    plt.plot(regression)
-    plt.setp(ax1.get_xticklabels(), fontsize=6)
-
-    ax2 = plt.subplot(312, sharex=ax1)
-    final_remainder_outliers = KS.get_outliers(final_remainder, 0.001)
-    final_remainder_outliers[np.isnan(final_remainder_outliers)] = 0
-    multilane_plot(chr_tag, [HMM_states, regression, final_remainder_outliers])
-    plt.setp(ax2.get_xticklabels(), visible=False)
-    plt.ylim(0, 200)
-
-    ax3 = plt.subplot(313, sharex=ax1)
-    multilane_plot(chr_tag, [chromosome_state, arms_state])
-    plt.setp(ax3.get_xticklabels(), visible=False)
-    plt.ylim(0, 200)
-
-    plt.show()
+    #
+    # ax1 = plt.subplot(311)
+    # plt.plot(starting_dataset, 'k.')
+    # plt.plot(regression)
+    # plt.setp(ax1.get_xticklabels(), fontsize=6)
+    #
+    # ax2 = plt.subplot(312, sharex=ax1)
+    # multilane_plot(chr_tag, [HMM_states])
+    # plt.setp(ax2.get_xticklabels(), visible=False)
+    # plt.ylim(0, 200)
+    #
+    # ax3 = plt.subplot(313, sharex=ax1)
+    # multilane_plot(chr_tag, [chromosome_state, arms_state])
+    # plt.setp(ax3.get_xticklabels(), visible=False)
+    # plt.ylim(0, 200)
+    #
+    # plt.show()
 
 
 def show_breakpoints(breakpoints, color = 'k'):
@@ -100,6 +101,9 @@ def show_breakpoints(breakpoints, color = 'k'):
     for point in breakpoints:
         plt.axvline(x=point, color=color)
 
+    ax3 = plt.subplot(513, sharex=ax1, sharey=ax2)
+    plt.plot(corrected_levels, 'r', lw=2)
+    plt.setp(ax3.get_xticklabels(), visible=False)
 
 def inflate_support(length, breakpoints, values=None):
     """
