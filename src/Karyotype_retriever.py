@@ -280,7 +280,8 @@ if __name__ == "__main__":
     fle = 'mmc2-karyotypes.csv'
     environment = Environement(pth, fle, debug_level=2)
     # print environment
-    print environment.recursive_HMM_regression(13)
+    print environment.recursive_hmm_regression(13)
+
     # TODO: attempt sliding window distribution?
     #       the idea is now pretty much to find a proper binarization technique
 
