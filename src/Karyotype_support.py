@@ -11,7 +11,7 @@ from scipy.ndimage.filters import gaussian_filter1d
 from pprint import pprint
 from chiffatools.dataviz import smooth_histogram
 from basic_drawing import show_2d_array
-from scipy.stats import norm, poisson
+from scipy.stats import norm, poisson, t
 
 
 def support_function(x, y):
@@ -163,7 +163,7 @@ def collapse_means(set_of_means, set_of_stds):
     pass
 
 
-def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.05, verbose=False):
+def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=False):
     """
     Performs Tukey quintile test for outliers from a normal distribution with defined false discovery rate
 
@@ -173,7 +173,7 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.05, verbose=Fa
     """
     # false discovery rate v.s. expected falses v.s. power
     q1_q3 = norm.interval(supporting_interval)
-    FDR_q1_q3 = norm.interval(1 - FDR)
+    FDR_q1_q3 = norm.interval(1 - FDR)  # TODO: this is not necessary: we can perfectly well fit it with proper params to FDR
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
@@ -235,6 +235,7 @@ def binarize(current_lane, FDR=0.05):
     return binarized
 
 
+
 def old_padded_means(lane, HMM_levels):
     """
     padding of each contig separately
@@ -285,7 +286,10 @@ def model_stats(regressed, regressor):
             settee[mask] = setted
 
     r2_0 = np.nansum(np.power(regressed, 2))
-    r2 = np.nansum(np.power(regressed-regressor, 2))
+    r2 = np.nansum(np.power(regressed - regressor, 2))
+
+    r1_0 = np.nansum(np.abs(regressed))
+    r1 = np.nansum(np.abs(regressed - regressor))
 
     to1 = np.empty_like(regressed)
     to1.fill(np.nan)
@@ -303,28 +307,27 @@ def model_stats(regressed, regressor):
     safe_set(to1, tor[1], regressed)
     safe_set(to2, tor2[0], regressed-regressor)
     safe_set(to2, tor2[1], regressed-regressor)
-    # to1[tuple(tor[0])] = regressed
-    # to1[tuple(tor[1])] = regressed
-    # to2[tuple(tor2[0])] = regressed - regressor
-    # to2[tuple(tor2[1])] = regressed - regressor
 
     complexity = (len(pull_breakpoints(regressor)))/2
 
-    to1 = np.nansum(np.power(to1, 2))
-    to2 = np.nansum(np.power(to2, 2))
+    to1 = np.nansum(np.abs(to1))
+    to2 = np.nansum(np.abs(to2))
 
-    improvement_1 = (1-r2/r2_0)*100
-    improvement_2 = (1-to2/to1)*100
+    l2_improvement_percent = (1.-r2/r2_0)*100.
+    l1_imporvement_percent = (1.-r1/r1_0)*100.
+    l0_improvement_percent = (1.-to2/to1)*100.
 
-    l1 = (tor[0].shape[0] + tor[1].shape[0])/FDR/regressed.shape[0] # since poisson sf fails for such big deviations
-    l2 = (tor2[0].shape[0] + tor2[1].shape[0])/FDR/regressed.shape[0]
+    log_likehood_1 = (tor[0].shape[0] + tor[1].shape[0])/FDR/regressed.shape[0] # since poisson sf fails for such big deviations
+    log_likehood_2 = (tor2[0].shape[0] + tor2[1].shape[0])/FDR/regressed.shape[0]
+    log_likehood_reduction = log_likehood_2 - log_likehood_1
 
-    return improvement_1, improvement_2, complexity, l1-l2, complexity-l1+l2
+    return l2_improvement_percent, l1_imporvement_percent, l0_improvement_percent, complexity,\
+            log_likehood_reduction, log_likehood_reduction+log_likehood_2
 
 
-def model_decision(std_reduction, std_of_outliers, segments_No, times_No_outliers_reduced, surrogate_AIC):
+def model_decision(std_reduction, L1_reduction, outliers_no_reduction, segments_No, times_No_outliers_reduced, surrogate_AIC):
 
-    return (std_of_outliers > 10 or std_reduction > 10 or surrogate_AIC < 0) and times_No_outliers_reduced > 1
+    return outliers_no_reduction > 3 or std_reduction > 3 or surrogate_AIC < 0
 
 
 def rolling_window(base_array, window_size):
@@ -341,8 +344,31 @@ def rolling_window(base_array, window_size):
 
 
 def rolling_mean(base_array, window_size):
+    """
+
+    :param base_array:
+    :param window_size:
+    :return:
+    """
     rar = rolling_window(base_array, window_size)
-    return rar.mean(1)
+    return np.pad(np.nanmean(rar, 1), (window_size/2, (window_size-1)/2), mode='edge')
+
+
+def rolling_std(base_array, window_size, quintiles=False):
+    """
+
+    :param base_array:
+    :param window_size:
+    :param quintiles:
+    :return:
+    """
+    rar = rolling_window(base_array, window_size)
+
+    if quintiles:
+        return np.pad(np.percentile(abs(rar), 33, 1), (window_size/2, (window_size-1)/2), mode='edge')
+
+    else:
+        return np.pad(np.nanstd(rar, 1), (window_size/2, (window_size-1)/2), mode='edge')
 
 
 def pull_breakpoints(contingency_list):
