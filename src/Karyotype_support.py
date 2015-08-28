@@ -409,7 +409,6 @@ def center_and_rebalance_tags(source_array):
     :param source_array:
     :return:
     """
-
     def correct_index(mp_vals):
         if len(lvls)>7:
             med_min = np.percentile(source_array, 34)

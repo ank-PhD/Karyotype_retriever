@@ -2,7 +2,10 @@ __author__ = 'Andrei'
 
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import gridspec
 import Karyotype_support as KS
+from chiffatools.dataviz import smooth_histogram
+from scipy.stats import beta
 
 
 def multilane_plot(main_pad, multi_pad_list):
@@ -68,23 +71,30 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     plt.ylim(0, 200)
 
     plt.show()
-    #
-    # ax1 = plt.subplot(311)
-    # plt.plot(starting_dataset, 'k.')
-    # plt.plot(regression)
-    # plt.setp(ax1.get_xticklabels(), fontsize=6)
-    #
-    # ax2 = plt.subplot(312, sharex=ax1)
-    # multilane_plot(chr_tag, [HMM_states])
-    # plt.setp(ax2.get_xticklabels(), visible=False)
-    # plt.ylim(0, 200)
-    #
-    # ax3 = plt.subplot(313, sharex=ax1)
-    # multilane_plot(chr_tag, [chromosome_state, arms_state])
-    # plt.setp(ax3.get_xticklabels(), visible=False)
-    # plt.ylim(0, 200)
-    #
-    # plt.show()
+
+    ax1 = plt.subplot(511)
+    plt.plot(starting_dataset, 'k.')
+    plt.plot(regression)
+    plt.setp(ax1.get_xticklabels(), fontsize=6)
+
+    ax2 = plt.subplot(512, sharex=ax1)
+    multilane_plot(chr_tag, [HMM_states])
+    plt.setp(ax2.get_xticklabels(), visible=False)
+    plt.ylim(0, 200)
+
+    ax3 = plt.subplot(513, sharex=ax1)
+    multilane_plot(chr_tag, [chromosome_state, arms_state])
+    plt.setp(ax3.get_xticklabels(), visible=False)
+    plt.ylim(0, 200)
+
+    ax4 = plt.subplot(514, sharex=ax1)
+    c_remainder = KS.get_outliers(final_remainder,0.005)
+    c_remainder[np.isnan(c_remainder)] = 0
+    multilane_plot(chr_tag, [regression, c_remainder])
+    plt.setp(ax4.get_xticklabels(), visible=False)
+    plt.ylim(0, 200)
+
+    plt.show()
 
 
 def show_breakpoints(breakpoints, color = 'k'):
@@ -137,7 +147,36 @@ def plot(_list):
 
 def plot2(_list, chr_brps, centromere_brps):
     inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(_list, _list.shape[0])])
+
+    gs = gridspec.GridSpec(4, 4)
+
+    ax1 = plt.subplot(gs[:-1, :])
     plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
     show_breakpoints(chr_brps, 'k')
     show_breakpoints(list(set(centromere_brps) - set(chr_brps)), 'g')
+
+    ax2 = plt.subplot(gs[-1, :], sharex=ax1)
+    red_run = np.nanmean((_list > 0).astype(np.float), 0)
+    blue_run = np.nanmean((_list < 0).astype(np.float), 0)
+
+    stack = np.hstack((blue_run, red_run))
+    mean = np.mean(stack)
+    std = np.std(stack)
+    _alpha = ((1 - mean)/std**2 - 1/mean)*mean**2
+    _beta = _alpha*(1/mean-1)
+    r = beta.rvs(_alpha, _beta, size=1000)
+    _min, _max = beta.interval(0.95, _alpha, _beta)
+
+    plt.plot(blue_run, 'b')
+    plt.plot(red_run, 'r')
+    plt.axhline(y=_min, color='g')
+    plt.axhline(y=_max, color='g')
+    show_breakpoints(chr_brps, 'k')
+    show_breakpoints(list(set(centromere_brps) - set(chr_brps)), 'g')
+    plt.show()
+
+    smooth_histogram(r, 'b')
+    smooth_histogram(stack)
+    plt.axvline(x=_max, color='g')
+    plt.axvline(x=_min, color='g')
     plt.show()

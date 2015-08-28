@@ -208,7 +208,10 @@ class Environement(object):
                              HMM_regressions, HMM_level_decisions, reg_remainders,
                              final_HMM, chr_state_pad, arms_state_pad)
 
-        return chromosome_state, final_regression, arms_state, reg_remainders[-1]
+        outliers = KS.get_outliers(reg_remainders[-1], 0.005)
+        outliers[np.isnan(outliers)] = 0
+
+        return chromosome_state, final_regression, arms_state, outliers
 
 
     def compute_all_karyotypes(self):
@@ -222,10 +225,10 @@ class Environement(object):
             print 'analyzing sample #', i
             col, bckg, col2, rmndrs = self.recursive_hmm_regression(i)
             chromosome_list.append(col)
-            background_list.append(bckg)
+            background_list.append(KS.center_and_rebalance_tags(bckg))
             arms_list.append(col2)
             all_breakpoints.append(pull_breakpoints(bckg))
-            remainders_list.append(center_and_rebalance_tags(np.array(rmndrs).astype(np.float64)))
+            remainders_list.append(KS.center_and_rebalance_tags(rmndrs))
         chromosome_list = np.array(chromosome_list).astype(np.float64)
         background_list = np.vstack(tuple(background_list)).astype(np.float64)
         arms_list = np.array(arms_list).astype(np.float64)
@@ -236,6 +239,8 @@ class Environement(object):
         plot2(remainders_list, self.chr_brps, self.centromere_brps)
         plot(arms_list)
 
+
+        # export of the data starts from here
         cell_line_dict = {}
         for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(), arms_list.tolist(),
                                                                  all_breakpoints, self.header):
@@ -272,7 +277,7 @@ class Environement(object):
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    environment = Environement(pth, fle, debug_level=1)
+    environment = Environement(pth, fle, debug_level=0)
     # print environment
     # print environment.recursive_hmm_regression(38)
     print environment.compute_all_karyotypes()
