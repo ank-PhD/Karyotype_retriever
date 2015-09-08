@@ -1,4 +1,4 @@
-.. image: https://img.shields.io/badge/license-BSD--3-blue.svg
+.. image:: https://img.shields.io/badge/license-BSD--3-blue.svg
      :target: https://github.com/chiffa/Karyotype_retriever/blob/master/License-BSD3
 
 
