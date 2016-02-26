@@ -1,6 +1,16 @@
 Developper's log:
 =================
 
+Confirmed implementation:
+-------------------------
+
+ - add a "summary:(background_list, remainders_list)"
+
+ - add names of chromosomes on the x axis and names of the strains on the y axis
+
+ - add index translating the chromosome arms limits to locations and strains to locations on chr
+
+
 
 Features:
 ---------

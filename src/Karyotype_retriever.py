@@ -43,6 +43,7 @@ class Environement(object):
         self.chromosomes = None
         self.locuses = None
         self.segments = None
+        self.strains = None
         self.min_seg_support = min_seg_support
         self.collapse_segments = collapse_segs
         self.debug_level = debug_level
@@ -54,8 +55,7 @@ class Environement(object):
             for name, value in parameter_dict.iteritems():
                 setattr(self, name, value)
 
-    @staticmethod
-    def wrap_import(_path, _file):
+    def wrap_import(self, _path, _file):
         """
         Performs an overall import of values from the source file
 
@@ -69,7 +69,8 @@ class Environement(object):
             selector = [1] + range(4, len(header))
             # I need lanes 1+2 to build mappings of the locations and centromeres
             selector2 = [1, 2]
-            print header
+            print 'header: %s' % header
+            self.strains = header[4:]
             header = np.array(header)[selector]
             locuses = []
             locus_locations = []
@@ -131,7 +132,6 @@ class Environement(object):
         :param fdr:
         :return:
         """
-        print 'hmm_regress with coherence length %s and fdr %s' % (coherence_length, fdr)
         parsing_hmm = HMM_constructor(coherence_length)
 
         # normalization of the mean
@@ -168,9 +168,9 @@ class Environement(object):
                 reg_remainder, hmm_reg, hmm_levels = self.hmm_regress(reg_remainders[-1],
                                                                       coherence_length, fdr)
                 reg_stats = sf.model_stats(reg_remainders[-1], hmm_reg)
-                print reg_stats
+                # print reg_stats
                 if not sf.model_decision(*reg_stats):
-                    print 'break'
+                    # print 'break'
                     break
                 else:
                     reg_remainders.append(reg_remainder)
@@ -235,7 +235,7 @@ class Environement(object):
         remainders_list = []
 
         for i in range(1, self.locuses.shape[1]):
-            print 'Environement.compute_all_karyotypes analyzing sample #', i
+            print 'Environement.compute_all_karyotypes analyzing ', self.strains[i-1]
             col, bckg, col2, rmndrs = self.recursive_hmm_regression(i)
             chromosome_list.append(col)
             background_list.append(sf.center_and_rebalance_tags(bckg))
@@ -248,43 +248,53 @@ class Environement(object):
         arms_list = np.array(arms_list).astype(np.float64)
         remainders_list = np.array(remainders_list).astype(np.float64)
 
-        plot(chromosome_list)
-        plot2(background_list, self.chr_breakpoints, self.centromere_breakpoints)
-        plot2(remainders_list, self.chr_breakpoints, self.centromere_breakpoints)
-        plot(arms_list)
+        # plot(chromosome_list)
+        plot2(background_list, self.chr_breakpoints, self.centromere_breakpoints, self.strains)
+        plot2(remainders_list, self.chr_breakpoints, self.centromere_breakpoints, self.strains)
+        # plot(arms_list)
+
+        chr_arm_locations, chr_arm_names = sf.align_chromosome_edges(self.chr_breakpoints,
+                                                                     self.centromere_breakpoints)
 
         # export of the data starts from here
         cell_line_dict = {}
-        for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(),
-                                                                 arms_list.tolist(),
-                                                                 all_breakpoints, self.header):
-            cell_line_dict[cell_line_name] = {}
-            breakpoints = np.array(breakpoints)
-            background = np.array(background)
-            for chromosome in range(0, self.broken_table.shape[0]):
-                chr_p_dict = {}
-                chr_q_dict = {}
-                p_arm = self.segments[chromosome*2].tolist()
-                q_arm = self.segments[chromosome*2 + 1].tolist()
-                p_brps = breakpoints[np.logical_and(breakpoints > p_arm[0], breakpoints < p_arm[1])]
-                q_brps = breakpoints[np.logical_and(breakpoints > q_arm[0], breakpoints < q_arm[1])]
-                chr_p_dict['arm_level'] = arms[chromosome*2]
-                chr_q_dict['arm_level'] = arms[chromosome*2 + 1]
-                if p_arm[1] - p_arm[0] > 0 and p_brps.size:
-                    p_characteristics = [[0] + self.locus_locations[p_brps].T[1].tolist(),
-                        [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
-                else:
-                    p_characteristics = [[], []]
-                if q_arm[1] - q_arm[0] > 0 and q_brps.size:
-                    q_characteristics = [[self.locus_locations[q_arm[0]][1]] +
-                                         self.locus_locations[q_brps].T[1].tolist(),
-                        [background[q_arm[0] + 1].tolist()] + background[q_brps + 1].tolist()]
-                else:
-                    q_characteristics = [[], []]
-                chr_p_dict['segmental_aneuploidy'] = p_characteristics
-                chr_q_dict['segmental_aneyploidy'] = q_characteristics
-                cell_line_dict[cell_line_name][str(chromosome+1)+'-p'] = chr_p_dict
-                cell_line_dict[cell_line_name][str(chromosome+1)+'-q'] = chr_q_dict
+        cell_line_dict["meta"] = {
+            "strains": self.strains,
+            "chromosome arms": (chr_arm_locations, chr_arm_names),
+            "HMM CNV matrix": background_list,
+            "HMM remainders CNV matrix": remainders_list
+        }
+
+        # for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(),
+        #                                                          arms_list.tolist(),
+        #                                                          all_breakpoints, self.header):
+        #     cell_line_dict[cell_line_name] = {}
+        #     breakpoints = np.array(breakpoints)
+        #     background = np.array(background)
+        #     for chromosome in range(0, self.broken_table.shape[0]):
+        #         chr_p_dict = {}
+        #         chr_q_dict = {}
+        #         p_arm = self.segments[chromosome*2].tolist()
+        #         q_arm = self.segments[chromosome*2 + 1].tolist()
+        #         p_brps = breakpoints[np.logical_and(breakpoints > p_arm[0], breakpoints < p_arm[1])]
+        #         q_brps = breakpoints[np.logical_and(breakpoints > q_arm[0], breakpoints < q_arm[1])]
+        #         chr_p_dict['arm_level'] = arms[chromosome*2]
+        #         chr_q_dict['arm_level'] = arms[chromosome*2 + 1]
+        #         if p_arm[1] - p_arm[0] > 0 and p_brps.size:
+        #             p_characteristics = [[0] + self.locus_locations[p_brps].T[1].tolist(),
+        #                 [background[p_arm[0] + 1].tolist()] + background[p_brps + 1].tolist()]
+        #         else:
+        #             p_characteristics = [[], []]
+        #         if q_arm[1] - q_arm[0] > 0 and q_brps.size:
+        #             q_characteristics = [[self.locus_locations[q_arm[0]][1]] +
+        #                                  self.locus_locations[q_brps].T[1].tolist(),
+        #                 [background[q_arm[0] + 1].tolist()] + background[q_brps + 1].tolist()]
+        #         else:
+        #             q_characteristics = [[], []]
+        #         chr_p_dict['segmental_aneuploidy'] = p_characteristics
+        #         chr_q_dict['segmental_aneyploidy'] = q_characteristics
+        #         cell_line_dict[cell_line_name][str(chromosome+1)+'-p'] = chr_p_dict
+        #         cell_line_dict[cell_line_name][str(chromosome+1)+'-q'] = chr_q_dict
 
         return cell_line_dict
 
@@ -293,7 +303,7 @@ if __name__ == "__main__":
     fle = 'mmc2-karyotypes.csv'
     fle2 = 'mmc1-karyotypes.csv'
     # TODO: mechanism for 22 chromosomes instead of 24
-    environment = Environement(pth, fle, debug_level=1,
+    environment = Environement(pth, fle2, debug_level=2,
                                coarse_hmm_parms=(10, 6, 0.6), fine_hmm_params=(3, 3, 0.1))
     # print environment
     print environment.recursive_hmm_regression(42)

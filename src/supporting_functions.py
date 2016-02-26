@@ -171,7 +171,8 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     """
     # false discovery rate v.s. expected falses v.s. power
     q1_q3 = norm.interval(supporting_interval)
-    FDR_q1_q3 = norm.interval(1 - FDR)  # TODO: this is not necessary: we can perfectly well fit it with proper params to FDR
+    # TODO: this is not necessary: we can perfectly well fit it with proper params to FDR
+    FDR_q1_q3 = norm.interval(1 - FDR)
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
@@ -179,10 +180,6 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     q3 = np.nanpercentile(set_of_means, 50*(1+supporting_interval))
     high_fence = q3 + multiplier*(q3 - q1)
     low_fence = q1 - multiplier*(q3 - q1)
-
-    print 'supporting_functions.binarize FDR: %s, low fence: %s, high fence: %s' % (FDR,
-                                                                                   high_fence,
-                                                                                   low_fence)
 
     if verbose:
         print 'FDR:', FDR
@@ -472,6 +469,21 @@ def position_centromere_breakpoints(chr2centromere_loc, chr_location_arr, broken
         local_idx = np.argmax(chr_location_arr[broken_table[chromosome-1], 2] > centromere_location)
         global_indexes[chromosome-1] = chr_location_arr[broken_table[chromosome-1], 0][local_idx]
     return global_indexes
+
+
+def align_chromosome_edges(chr_brps, centromere_brps):
+    chr_arm_locations = sorted(centromere_brps + chr_brps+[0])
+    chr_arm_names = [('%sp' % chrom, '%sq' % chrom) for chrom in range(1, len(chr_brps)+2)]
+    chr_arm_names = [item for sublist in chr_arm_names for item in sublist]
+
+    chr_loc_array = np.array(chr_arm_locations)
+    duplicate_mask = chr_loc_array[:-1] == chr_loc_array[1:]
+    chr_arm_locations = chr_loc_array[np.logical_not(duplicate_mask)].tolist() + [
+        chr_arm_locations[-1]]
+    chr_arm_names = np.array(chr_arm_names)[np.logical_not(duplicate_mask)].tolist() + [
+        chr_arm_names[-1]]
+
+    return chr_arm_locations, chr_arm_names
 
 
 if __name__ == "__main__":
