@@ -1,9 +1,7 @@
-__author__ = 'Andrei'
-
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
-import Karyotype_support as KS
+import supporting_functions as KS
 from chiffatools.dataviz import smooth_histogram
 from scipy.stats import beta
 

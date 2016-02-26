@@ -1,7 +1,6 @@
-__author__ = 'Andrei'
-
 import numpy as np
 from matplotlib import pyplot as plt
+
 
 def show_2d_array(data, title=False):
     if title:

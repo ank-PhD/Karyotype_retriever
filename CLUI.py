@@ -1,5 +1,3 @@
-__author__ = 'Andrei'
-
 import click
 from src.Karyotype_retriever import Environement
 

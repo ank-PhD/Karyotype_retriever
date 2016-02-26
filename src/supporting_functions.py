@@ -1,5 +1,3 @@
-__author__ = 'ank'
-
 import numpy as np
 from matplotlib import pyplot as plt
 from itertools import combinations
@@ -177,10 +175,14 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
-    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
-    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
+    q1 = np.nanpercentile(set_of_means, 50*(1-supporting_interval))
+    q3 = np.nanpercentile(set_of_means, 50*(1+supporting_interval))
     high_fence = q3 + multiplier*(q3 - q1)
     low_fence = q1 - multiplier*(q3 - q1)
+
+    print 'supporting_functions.binarize FDR: %s, low fence: %s, high fence: %s' % (FDR,
+                                                                                   high_fence,
+                                                                                   low_fence)
 
     if verbose:
         print 'FDR:', FDR
@@ -190,8 +192,8 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
         print 'fences', high_fence, low_fence
 
     if verbose:
-        print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
-                                                                                  poisson.interval(0.95, FDR*l_means))
+        print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s" % \
+              (FDR*100, FDR*l_means, poisson.interval(0.95, FDR*l_means))
 
     ho = (set_of_means < low_fence).nonzero()[0]
     lo = (set_of_means > high_fence).nonzero()[0]
@@ -410,19 +412,30 @@ def center_and_rebalance_tags(source_array):
     :return:
     """
     def correct_index(mp_vals):
-        if len(lvls)>7:
+        if len(lvls) > 7:
             med_min = np.percentile(source_array, 34)
             med_max = np.percentile(source_array, 66)
             med_med = np.median(source_array)
-            lcm_med = [mp_vals[_i] for _i, _val in enumerate(lvls) if np.abs(_val - med_med) < 0.01][0]
+            # TODO: instability encountered here
+
+            closest_real_level = 0
+            closest_real_mean_level = 10
+            for _i, _val in enumerate(lvls):
+                if np.abs(_val - med_med) < closest_real_mean_level:
+                    closest_real_level = mp_vals[_i]
+                    closest_real_mean_level = np.abs(_val - med_med)
+
+            lcm_med = closest_real_level
+
             for _i, _lvl in enumerate(lvls):
-                if _lvl >= med_min and _lvl <= med_max:
+                if _lvl >= med_min and _lvl <= med_max:  # TODO: too large for fragmented genomes?
                     mp_vals[_i] = lcm_med
         return mp_vals
 
     lvls = np.unique(source_array).tolist()
+
     map_values = correct_index(np.array(range(0, len(lvls))).astype(np.float))
-    index = np.digitize(source_array.reshape( -1, ), lvls) - 1
+    index = np.digitize(source_array.reshape(-1, ), lvls) - 1
     source_array = map_values[index].reshape(source_array.shape)
     arr_med = np.median(source_array)
     arr_min = np.min(source_array)
