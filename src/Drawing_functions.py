@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
-import supporting_functions as KS
+import supporting_functions as sf
 from chiffatools.dataviz import smooth_histogram
 from scipy.stats import beta
 
@@ -21,7 +21,7 @@ def multilane_plot(main_pad, multi_pad_list):
 
 def remainder_plot(remainders, FDR=0.005):
     plt.plot(remainders, 'k.')
-    plt.plot(KS.get_outliers(remainders, FDR), 'r.')
+    plt.plot(sf.get_outliers(remainders, FDR), 'r.')
 
 
 def plot_classification(parsed, chr_tag, current_lane, segment_averages, binarized, FDR):
@@ -86,7 +86,7 @@ def multi_level_plot(chr_tag, starting_dataset, regression, final_remainder,
     plt.ylim(0, 200)
 
     ax4 = plt.subplot(514, sharex=ax1)
-    c_remainder = KS.get_outliers(final_remainder,0.005)
+    c_remainder = sf.get_outliers(final_remainder, 0.005)
     c_remainder[np.isnan(c_remainder)] = 0
     multilane_plot(chr_tag, [regression, c_remainder])
     plt.setp(ax4.get_xticklabels(), visible=False)
@@ -143,14 +143,18 @@ def plot(_list):
     plt.show()
 
 
-def plot2(_list, chr_brps, centromere_brps):
+def plot2(_list, chr_brps, centromere_brps, line_names=None):
+
+    if not line_names:
+        line_names = range(1, _list.shape[0]+1)
+
     inflated_table = np.vstack([inflate_tags(x[0, :], 25) for x in np.split(_list, _list.shape[0])])
 
     gs = gridspec.GridSpec(4, 4)
 
     ax1 = plt.subplot(gs[:-1, :])
     plt.imshow(inflated_table, interpolation='nearest', cmap='coolwarm')
-    show_breakpoints(chr_brps, 'k')
+    show_breakpoints([0] + chr_brps + [_list.shape[1]], 'k')
     show_breakpoints(list(set(centromere_brps) - set(chr_brps)), 'g')
 
     ax2 = plt.subplot(gs[-1, :], sharex=ax1)
@@ -169,8 +173,19 @@ def plot2(_list, chr_brps, centromere_brps):
     plt.plot(red_run, 'r')
     plt.axhline(y=_min, color='g')
     plt.axhline(y=_max, color='g')
-    show_breakpoints(chr_brps, 'k')
+    show_breakpoints([0] + chr_brps + [_list.shape[1]], 'k')
     show_breakpoints(list(set(centromere_brps) - set(chr_brps)), 'g')
+
+    chr_arm_locations, chr_arm_names = sf.align_chromosome_edges(chr_brps, centromere_brps)
+
+    ax1.set_xticks(chr_arm_locations)
+    ax1.set_xticklabels(chr_arm_names, rotation='vertical')
+
+    ax1.set_yticks(range(0, _list.shape[0]*25+1, 25))
+    ax1.set_yticklabels(line_names)
+
+    ax2.set_xticks(chr_arm_locations)
+    ax2.set_xticklabels(chr_arm_names, rotation='vertical')
     plt.show()
 
     smooth_histogram(r, 'b')
