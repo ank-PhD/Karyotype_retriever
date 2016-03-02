@@ -4,12 +4,7 @@ Developper's log:
 Confirmed implementation:
 -------------------------
 
- - add a "summary:(background_list, remainders_list)"
-
- - add names of chromosomes on the x axis and names of the strains on the y axis
-
- - add index translating the chromosome arms limits to locations and strains to locations on chr
-
+ - use the new arm map in order to properly cut the chromosome arms for the strains output.
 
 
 Features:
@@ -34,6 +29,4 @@ Features:
 Refactoring:
 ------------
 
- - Stabilize the behavior with respect to the points that are nan:
-    - excise them for the statistical computations and HMM calculation
-    - Introduce them back in upon the rebuilding of the lane for the output
+ - unifromize the way NaNs are treated.
