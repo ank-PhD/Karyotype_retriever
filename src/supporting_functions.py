@@ -1,5 +1,3 @@
-__author__ = 'ank'
-
 import numpy as np
 from matplotlib import pyplot as plt
 from itertools import combinations
@@ -173,12 +171,13 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
     """
     # false discovery rate v.s. expected falses v.s. power
     q1_q3 = norm.interval(supporting_interval)
-    FDR_q1_q3 = norm.interval(1 - FDR)  # TODO: this is not necessary: we can perfectly well fit it with proper params to FDR
+    # TODO: this is not necessary: we can perfectly well fit it with proper params to FDR
+    FDR_q1_q3 = norm.interval(1 - FDR)
     multiplier = (FDR_q1_q3[1] - q1_q3[1]) / (q1_q3[1] - q1_q3[0])
     l_means = len(set_of_means)
 
-    q1 = np.percentile(set_of_means, 50*(1-supporting_interval))
-    q3 = np.percentile(set_of_means, 50*(1+supporting_interval))
+    q1 = np.nanpercentile(set_of_means, 50*(1-supporting_interval))
+    q3 = np.nanpercentile(set_of_means, 50*(1+supporting_interval))
     high_fence = q3 + multiplier*(q3 - q1)
     low_fence = q1 - multiplier*(q3 - q1)
 
@@ -190,8 +189,8 @@ def Tukey_outliers(set_of_means, FDR=0.005, supporting_interval=0.5, verbose=Fal
         print 'fences', high_fence, low_fence
 
     if verbose:
-        print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s"% (FDR*100, FDR*l_means,
-                                                                                  poisson.interval(0.95, FDR*l_means))
+        print "FDR: %s %%, expected outliers: %s, outlier 5%% confidence interval: %s" % \
+              (FDR*100, FDR*l_means, poisson.interval(0.95, FDR*l_means))
 
     ho = (set_of_means < low_fence).nonzero()[0]
     lo = (set_of_means > high_fence).nonzero()[0]
@@ -410,19 +409,30 @@ def center_and_rebalance_tags(source_array):
     :return:
     """
     def correct_index(mp_vals):
-        if len(lvls)>7:
+        if len(lvls) > 7:
             med_min = np.percentile(source_array, 34)
             med_max = np.percentile(source_array, 66)
             med_med = np.median(source_array)
-            lcm_med = [mp_vals[_i] for _i, _val in enumerate(lvls) if np.abs(_val - med_med) < 0.01][0]
+            # TODO: instability encountered here
+
+            closest_real_level = 0
+            closest_real_mean_level = 10
+            for _i, _val in enumerate(lvls):
+                if np.abs(_val - med_med) < closest_real_mean_level:
+                    closest_real_level = mp_vals[_i]
+                    closest_real_mean_level = np.abs(_val - med_med)
+
+            lcm_med = closest_real_level
+
             for _i, _lvl in enumerate(lvls):
-                if _lvl >= med_min and _lvl <= med_max:
+                if _lvl >= med_min and _lvl <= med_max:  # TODO: too large for fragmented genomes?
                     mp_vals[_i] = lcm_med
         return mp_vals
 
     lvls = np.unique(source_array).tolist()
+
     map_values = correct_index(np.array(range(0, len(lvls))).astype(np.float))
-    index = np.digitize(source_array.reshape( -1, ), lvls) - 1
+    index = np.digitize(source_array.reshape(-1, ), lvls) - 1
     source_array = map_values[index].reshape(source_array.shape)
     arr_med = np.median(source_array)
     arr_min = np.min(source_array)
@@ -459,6 +469,21 @@ def position_centromere_breakpoints(chr2centromere_loc, chr_location_arr, broken
         local_idx = np.argmax(chr_location_arr[broken_table[chromosome-1], 2] > centromere_location)
         global_indexes[chromosome-1] = chr_location_arr[broken_table[chromosome-1], 0][local_idx]
     return global_indexes
+
+
+def align_chromosome_edges(chr_brps, centromere_brps):
+    chr_arm_locations = sorted(centromere_brps + chr_brps+[0])
+    chr_arm_names = [('%sp' % chrom, '%sq' % chrom) for chrom in range(1, len(chr_brps)+2)]
+    chr_arm_names = [item for sublist in chr_arm_names for item in sublist]
+
+    chr_loc_array = np.array(chr_arm_locations)
+    duplicate_mask = chr_loc_array[:-1] == chr_loc_array[1:]
+    chr_arm_locations = chr_loc_array[np.logical_not(duplicate_mask)].tolist() + [
+        chr_arm_locations[-1]]
+    chr_arm_names = np.array(chr_arm_names)[np.logical_not(duplicate_mask)].tolist() + [
+        chr_arm_names[-1]]
+
+    return chr_arm_locations, chr_arm_names
 
 
 if __name__ == "__main__":
