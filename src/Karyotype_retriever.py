@@ -82,6 +82,7 @@ class Environement(object):
         # Recovers the chromosome limits
         locuses = np.array(locuses)
         locus_locations = np.array(locus_locations)
+        self.locus_locations = locus_locations
 
         chr_arr = locuses[:, 0]
         chr_brps = pull_breakpoints(chr_arr)
@@ -262,7 +263,8 @@ class Environement(object):
             "strains": self.strains,
             "chromosome arms": (chr_arm_locations, chr_arm_names),
             "HMM CNV matrix": background_list,
-            "HMM remainders CNV matrix": remainders_list
+            "HMM remainders CNV matrix": remainders_list,
+            "locus locations": self.locus_locations,
         }
 
         # for background, arms, breakpoints, cell_line_name in zip(background_list.tolist(),
@@ -301,14 +303,14 @@ class Environement(object):
 if __name__ == "__main__":
     pth = 'C:\\Users\\Andrei\\Desktop'
     fle = 'mmc2-karyotypes.csv'
-    fle2 = 'mmc1-karyotypes.csv'
+    # fle2 = 'mmc1-karyotypes.csv'
     # TODO: mechanism for 22 chromosomes instead of 24
-    environment = Environement(pth, fle2, debug_level=2,
+    environment = Environement(pth, fle, debug_level=1,
                                coarse_hmm_parms=(10, 6, 0.6), fine_hmm_params=(3, 3, 0.1))
     # print environment
-    print environment.recursive_hmm_regression(42)
+    # print environment.recursive_hmm_regression(42)
     print environment.recursive_hmm_regression(43)
-    print environment.recursive_hmm_regression(44)
+    # print environment.recursive_hmm_regression(44)
     # print environment.compute_all_karyotypes()
     # currently violating: # 38
 
