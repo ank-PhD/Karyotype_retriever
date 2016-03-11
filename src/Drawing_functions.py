@@ -16,7 +16,9 @@ def multilane_plot(main_pad, multi_pad_list):
     plt.imshow(morph_shape(main_pad, 200), interpolation='nearest', cmap='spectral')
     for i, array in enumerate(multi_pad_list):
         j = len(multi_pad_list) - i
-        plt.imshow(morph_shape(array, j*step_size),interpolation='nearest', cmap='coolwarm', vmin=-1, vmax=1)
+        plt.imshow(morph_shape(array, j*step_size),
+                   interpolation='nearest', cmap='coolwarm',
+                   vmin=-1, vmax=1)
 
 
 def remainder_plot(remainders, FDR=0.005):
